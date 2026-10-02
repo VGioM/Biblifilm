@@ -1,0 +1,5 @@
+.build/
+dist/
+Frameworks/
+.DS_Store
+timeout.txt
