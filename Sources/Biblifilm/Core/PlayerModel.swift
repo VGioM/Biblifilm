@@ -62,7 +62,8 @@ final class PlayerModel: NSObject, ObservableObject {
     private var tracksSeenAt: Date?
     private static let trackSettleTime: TimeInterval = 5
 
-    let player = VLCMediaPlayer()
+    /// Replaced on every load -- see `freshEngine()`.
+    private(set) var player = VLCMediaPlayer()
     private var hudTask: Task<Void, Never>?
     private var infoTask: Task<Void, Never>?
     private var openWatchdog: Task<Void, Never>?
@@ -90,6 +91,12 @@ final class PlayerModel: NSObject, ObservableObject {
     private var lastDeliberateStop: Date = .distantPast
     /// Running while we sit out a drive that has gone away.
     private var awaitingVolume: Task<Void, Never>?
+    /// Waits for the displays to stop changing before rebuilding the picture.
+    private var displaySettle: Task<Void, Never>?
+    /// Set when the displays changed during a pause. Reloading then would
+    /// mean playing and pausing again before VLC has shown a frame -- a black
+    /// picture under a spinner -- so the rebuild waits for the next "play".
+    private var rebuildOnResume = false
 
     /// How long the clock may stand still before it counts as a freeze. Long
     /// enough not to fire on a slow seek, short enough that nobody has
@@ -102,11 +109,16 @@ final class PlayerModel: NSObject, ObservableObject {
     /// generous enough to cover a bad one and short enough that a drive
     /// genuinely unplugged does not leave a spinner up all evening.
     private static let volumeWaitTimeout: TimeInterval = 90
+    /// Quiet time required after the last display change before rebuilding.
+    /// A screen renegotiating its link fires ten changes a second, sometimes
+    /// for over a minute; rebuilding on each one would only make it worse.
+    private static let displaySettleDelay: UInt64 = 2_000_000_000
 
     private override init() {
         super.init()
         player.delegate = self
         volume = Int(player.audio?.volume ?? 100)
+        DisplayWatcher.start { PlayerModel.shared.displaysChanged() }
     }
 
     /// `isPlaying` used to be driven only by state notifications (unreliable)
@@ -164,11 +176,12 @@ final class PlayerModel: NSObject, ObservableObject {
         awaitingVolume?.cancel()
         awaitingVolume = nil
         lastDeliberateStop = .now
-        player.stop()
+        freshEngine()
 
         isBuffering = true
         hasPlayed = false
         pausedByUser = false
+        rebuildOnResume = false
         lastEngineTime = -1
         lastProgressAt = .now
         audioTracks = []
@@ -212,6 +225,24 @@ final class PlayerModel: NSObject, ObservableObject {
         }
     }
 
+    /// Retire the current VLC player and start from a new one.
+    ///
+    /// A stopped player does not let go of its video output: the next file
+    /// played through it picks the same one back up ("saving a free vout",
+    /// "reusing provided vout"), still bound to the view and the display it
+    /// was made for. So an output broken once -- opened while the screen was
+    /// renegotiating its HDMI link -- stayed broken for every later film, and
+    /// only a restart of the app brought the picture back. A new player costs
+    /// next to nothing and always builds its output from scratch.
+    private func freshEngine() {
+        let old = player
+        old.delegate = nil
+        old.stop()
+        old.drawable = nil
+        player = VLCMediaPlayer()
+        player.delegate = self
+    }
+
     /// The view VLC renders into, handed over by the SwiftUI layer.
     weak var drawable: VLCVideoView? {
         didSet {
@@ -242,6 +273,9 @@ final class PlayerModel: NSObject, ObservableObject {
             player.pause()
             isPlaying = false
             pausedByUser = true
+        } else if rebuildOnResume {
+            pausedByUser = false
+            rebuildVideoOutput()
         } else {
             player.play()
             isPlaying = true
@@ -297,6 +331,9 @@ final class PlayerModel: NSObject, ObservableObject {
         stateTicker?.cancel()
         awaitingVolume?.cancel()
         awaitingVolume = nil
+        displaySettle?.cancel()
+        displaySettle = nil
+        rebuildOnResume = false
         hudTask?.cancel()
         infoTask?.cancel()
         persistProgress(force: true)
@@ -742,6 +779,41 @@ final class PlayerModel: NSObject, ObservableObject {
 
         load(item, resumingAt: resumeAt)
         showInfoHUD("Reprise de la lecture…")
+    }
+
+    // MARK: - Écrans
+
+    /// A display came, went or changed mode. Wait for things to settle, then
+    /// have VLC build its video output again.
+    fileprivate func displaysChanged() {
+        guard current != nil else { return }
+        displaySettle?.cancel()
+        displaySettle = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.displaySettleDelay)
+            guard !Task.isCancelled else { return }
+            self?.rebuildVideoOutput()
+        }
+    }
+
+    /// VLC sets its OpenGL output up once, against the display of the moment,
+    /// and never revisits it. When that display goes away under it the sound
+    /// carries on and the picture stays black for good. So the film is
+    /// reloaded through a fresh player (`load` always starts one), which
+    /// builds a new output in the same view, at the second it had reached.
+    private func rebuildVideoOutput() {
+        displaySettle = nil
+        guard let item = current, failure == nil, awaitingVolume == nil else { return }
+
+        if pausedByUser {
+            rebuildOnResume = true
+            return
+        }
+
+        let resumeAt = pendingResume ?? (time > 0 ? time : nil)
+        persistProgress(force: true)
+
+        load(item, resumingAt: resumeAt)
+        showInfoHUD("Écran reconfiguré — image rétablie")
     }
 
     /// Sit out a drive that has gone away, and pick the film back up the
