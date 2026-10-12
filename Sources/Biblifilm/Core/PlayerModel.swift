@@ -212,12 +212,22 @@ final class PlayerModel: NSObject, ObservableObject {
             playsWhenDrawableArrives = true
         }
 
-        // Some files never reach .playing and never report .error either --
-        // they just sit there. Don't leave a spinner up forever.
+        armOpenWatchdog(for: item)
+    }
+
+    /// Some files never reach .playing and never report .error either --
+    /// they just sit there. Don't leave a spinner up forever.
+    ///
+    /// A pause in the first seconds is not such a file: `hasPlayed` only
+    /// flips after three seconds of film, so pausing at 0:00 used to put the
+    /// error up fifteen seconds later. The watchdog stands down while the
+    /// viewer holds the pause and starts over when they press play.
+    private func armOpenWatchdog(for item: MediaItem) {
         openWatchdog?.cancel()
         openWatchdog = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             guard !Task.isCancelled, let self, !self.hasPlayed,
+                  !self.pausedByUser,
                   self.current?.id == item.id else { return }
             self.isBuffering = false
             self.isPlaying = false
@@ -280,6 +290,7 @@ final class PlayerModel: NSObject, ObservableObject {
             player.play()
             isPlaying = true
             pausedByUser = false
+            if !hasPlayed, let current { armOpenWatchdog(for: current) }
         }
     }
 
