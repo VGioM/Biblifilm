@@ -2,3 +2,4 @@
 /Frameworks/
 .DS_Store
 timeout.txt
+dist/

@@ -45,8 +45,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key>           <string>Biblifilm</string>
     <key>CFBundleExecutable</key>            <string>Biblifilm</string>
     <key>CFBundleIdentifier</key>            <string>com.biblifilm.app</string>
-    <key>CFBundleVersion</key>               <string>1.1</string>
-    <key>CFBundleShortVersionString</key>    <string>1.1</string>
+    <key>CFBundleVersion</key>               <string>1.2</string>
+    <key>CFBundleShortVersionString</key>    <string>1.2</string>
     <key>CFBundlePackageType</key>           <string>APPL</string>
     <key>CFBundleIconFile</key>              <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>        <string>14.0</string>
