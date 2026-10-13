@@ -544,6 +544,11 @@ struct PlayerScreen: View {
         guard player.isPlaying, openMenu == nil, !scrubbing,
               now.timeIntervalSince(lastActivity) >= Self.idleDelay else { return }
         if controlsVisible { controlsVisible = false }
+        // A pointer left resting on the seek bar is still "hovering" when the
+        // bar fades out, and a view taken away never hears the hover end. The
+        // stale position then brought the vignette back with the bar, frozen
+        // on an old scene, wherever the pointer had since gone.
+        if hoverFraction != nil { hoverFraction = nil }
 
         // Only when the pointer is over our own window and we are in front:
         // hiding it would otherwise swallow it on another screen or app.
