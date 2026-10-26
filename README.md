@@ -309,3 +309,24 @@ Sources/Biblifilm/
     SeasonDetailView.swift  season page + episode list
     DetailView.swift        inspector for the selected file
 ```
+
+## Tests
+
+```bash
+./Tests/run-unit.sh        # tests unitaires (parseur, historique, saisons, pistes)
+./Tests/E2E/run.sh         # bout en bout : la vraie app, de vrais fichiers, de vraies sorties
+./Tests/E2E/run.sh sigterm next_episode   # seulement certains scénarios
+```
+
+Les scénarios E2E lancent l'app de debug (fenêtre visible pendant ~3 min) sous
+un autre identifiant (`com.biblifilm.e2e`) et avec un dossier de données
+temporaire : l'historique et les réglages réels ne sont jamais touchés. Chacun
+lit une courte vidéo générée sur place, la quitte d'une façon donnée (⌘Q,
+plein écran, pause, Apple Event, SIGTERM, arrêt forcé, fermeture de fenêtre,
+Échap, épisode suivant, fin de fichier) et vérifie la position enregistrée.
+
+Balayage de la vraie bibliothèque par le parseur, en lecture seule :
+
+```bash
+BIBLIFILM_SWEEP_DIR=~/Downloads/Films ./Tests/run-unit.sh --filter Sweep
+```

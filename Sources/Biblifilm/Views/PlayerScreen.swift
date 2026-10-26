@@ -218,7 +218,7 @@ struct PlayerScreen: View {
                 controlButton("goforward.10") { player.skip(10) }
 
                 if player.canPlayNext {
-                    controlButton("forward.end.fill") { player.playNext() }
+                    controlButton("forward.end.fill") { player.skipToNext() }
                         .help("Épisode suivant")
                 }
 

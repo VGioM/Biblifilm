@@ -283,6 +283,9 @@ final class PlayerModel: NSObject, ObservableObject {
             player.pause()
             isPlaying = false
             pausedByUser = true
+            // A paused film can sit for hours; the periodic save skips a still
+            // clock, so record the exact spot now rather than two seconds back.
+            persistProgress(force: true)
         } else if rebuildOnResume {
             pausedByUser = false
             rebuildVideoOutput()
@@ -334,6 +337,17 @@ final class PlayerModel: NSObject, ObservableObject {
         let label = [next.playerSubtitle, next.playerTitle]
             .filter { !$0.isEmpty }.joined(separator: " · ")
         showInfoHUD(label.isEmpty ? "Épisode suivant" : "À suivre · " + label)
+    }
+
+    /// The "next episode" button: the viewer is done with this one, wherever
+    /// they left it, so it counts as seen -- the credits are what gets skipped.
+    func skipToNext() {
+        guard let finished = current, !queue.isEmpty else { return }
+        // After the switch, not before: starting the next file records the
+        // position reached in this one, which would otherwise land on top of
+        // the "seen" mark and leave it half-watched.
+        playNext()
+        WatchStore.shared.setWatched(true, for: finished)
     }
 
     /// Leave the player and go back to the library.

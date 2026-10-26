@@ -24,8 +24,14 @@ struct WatchRecord: Codable, Hashable {
     static let minimumResumeSeconds: Double = 5
 
     /// Don't offer to resume a few seconds in, or once effectively finished.
+    ///
+    /// Being seen does not rule it out: a film watched before, started again
+    /// and left half way has a spot worth going back to. It used to, and the
+    /// rewatch then restarted from zero every time while the spot sat in the
+    /// file unused. Marking an item seen puts its position at the end, so a
+    /// plain "seen" still offers nothing.
     var isResumable: Bool {
-        !watched && position > Self.minimumResumeSeconds
+        position > Self.minimumResumeSeconds
             && progress < Self.completionThreshold
     }
 
@@ -47,8 +53,9 @@ final class WatchStore: ObservableObject {
     private let fileURL: URL
     private var saveTask: Task<Void, Never>?
 
-    private init() {
-        fileURL = AppSettings.supportDirectory.appendingPathComponent("watch-state.json")
+    /// `fileURL` is for the tests; the app always uses the shared store.
+    init(fileURL: URL = AppSettings.supportDirectory.appendingPathComponent("watch-state.json")) {
+        self.fileURL = fileURL
         if let data = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder().decode([String: WatchRecord].self, from: data) {
             records = decoded
@@ -79,8 +86,9 @@ final class WatchStore: ObservableObject {
         var r = records[item.id] ?? WatchRecord()
         r.watched = watched
         r.lastPlayed = .now
-        // Marking unwatched should also clear the resume point.
-        if !watched { r.position = 0 } else if r.duration > 0 { r.position = r.duration }
+        // Marking unwatched clears the resume point; marking seen moves it to
+        // the end, so a half-way spot does not survive as something to resume.
+        r.position = watched ? r.duration : 0
         records[item.id] = r
         scheduleSave()
     }
@@ -109,13 +117,25 @@ final class WatchStore: ObservableObject {
         return total / Double(group.episodes.count)
     }
 
-    /// The episode to offer when resuming a season: the one in progress,
-    /// else the first unwatched one. Nil once the season is finished.
+    /// The episode to offer when resuming a season: where the viewer left
+    /// off -- the episode played last if it is part-way through, else the
+    /// next unseen one from there. Nil once the season is finished.
+    ///
+    /// It used to be the *first* part-watched episode of the season. One
+    /// episode left at the credits (skipped to the next, say) then stuck at
+    /// the front: after watching three more and quitting half way through a
+    /// fourth, "Reprendre" went back to the credits of the old one, which
+    /// looked exactly like the position had not been saved.
     func nextEpisode(in group: SeasonGroup) -> MediaItem? {
-        if let inProgress = group.episodes.first(where: { resumePosition(for: $0) != nil }) {
-            return inProgress
+        let episodes = group.episodes
+        let touched = episodes.indices.compactMap { index in
+            records[episodes[index].id].map { (index, $0.lastPlayed) }
         }
-        return group.episodes.first { !isWatched($0) }
+        if let last = touched.max(by: { $0.1 < $1.1 })?.0 {
+            if resumePosition(for: episodes[last]) != nil { return episodes[last] }
+            if let next = episodes[last...].first(where: { !isWatched($0) }) { return next }
+        }
+        return episodes.first { !isWatched($0) }
     }
 
     /// When the viewer last touched any episode of the season, nil if never.

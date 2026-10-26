@@ -69,10 +69,17 @@ final class AppSettings: ObservableObject {
         ("ja-JP", "日本語")
     ]
 
-    /// Application-support directory, created on demand.
+    /// Application-support directory, created on demand. The end-to-end
+    /// tests point it elsewhere, so they never touch the real watch history.
     nonisolated static var supportDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Biblifilm", isDirectory: true)
+        let base: URL
+        if let override = ProcessInfo.processInfo.environment["BIBLIFILM_SUPPORT_DIR"],
+           !override.isEmpty {
+            base = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Biblifilm", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base
     }

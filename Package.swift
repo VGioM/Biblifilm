@@ -15,6 +15,13 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
+        ),
+        // Run with Tests/run-unit.sh. The end-to-end scenarios live in Tests/E2E.
+        .testTarget(
+            name: "BiblifilmTests",
+            dependencies: ["Biblifilm"],
+            path: "Tests/BiblifilmTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )
