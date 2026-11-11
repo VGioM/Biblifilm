@@ -1,0 +1,85 @@
+/* Biblifilm : les gris de Music.app en mode sombre, bleu système pour l'accent.
+   Partagé avec Biblijeu : une couleur changée ici se change là-bas aussi. */
+:root {
+  --accent: #0A85FF;
+  --on-accent: #fff;
+  --warm: #FA9E3D;
+  --content: #1C1C1F;
+  --sidebar: #262628;
+  --toolbar: #212124;
+  --panel: #212124;
+  --panel2: #2C2C2E;
+  --text: #F2F2F4;
+  --muted: rgba(235,235,245,.62);
+  --tertiary: rgba(235,235,245,.36);
+  --hairline: rgba(255,255,255,.08);
+  --hairline-strong: rgba(255,255,255,.14);
+  --selection: rgba(255,255,255,.10);
+  --sidebar-w: 215px;
+  --inspector-w: 305px;
+  --card-min: 148px;
+  --cover-radius: 8px;
+  --cover-aspect: 2/3;
+}
+
+.side-row.active .ic { color: var(--accent); }
+.keybanner { display: flex; align-items: center; gap: 11px; padding: 9px 16px; background: rgba(60,60,64,.7); border-bottom: 1px solid var(--hairline); }
+.keybanner .t { font-weight: 600; font-size: 12.5px; }
+.keybanner .s { font-size: 11.5px; color: var(--muted); }
+
+/* Tuile d'une saison : des feuillets qui dépassent derrière l'affiche. */
+.card.season { padding-top: 17px; }
+.stackwrap { position: relative; }
+.stackwrap::before, .stackwrap::after { content: ""; position: absolute; border-radius: var(--cover-radius); left: 15px; right: 15px; top: -9px; height: 30px; background: rgba(255,255,255,.13); }
+.stackwrap::after { left: 7.5px; right: 7.5px; top: -4.5px; background: rgba(255,255,255,.20); }
+.stackwrap .cover { z-index: 1; }
+.cover .resume { position: absolute; left: 0; right: 0; bottom: 0; height: 3.5px; background: rgba(0,0,0,.55); }
+.cover .resume > div { height: 100%; background: var(--accent); min-width: 3px; }
+.cover .seen { position: absolute; top: 7px; right: 7px; color: var(--accent); background: #fff; border-radius: 50%; width: 17px; height: 17px; display: grid; place-items: center; }
+.cover .seen .ic { color: #fff; background: var(--accent); border-radius: 50%; padding: 2px; }
+.cover .epcount { position: absolute; right: 7px; bottom: 9px; }
+.card .t2 .watched { color: var(--accent); }
+
+/* Page d'une saison */
+.season-page { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+.season-head { display: flex; gap: 18px; align-items: flex-start; }
+.season-head .cover { width: 168px; flex: none; box-shadow: 0 5px 24px rgba(0,0,0,.45); border-radius: 10px; }
+.season-head h1 { font-size: 22px; margin: 0; }
+.season-head .sub { font-size: 17px; color: var(--accent); }
+.season-head .ov { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; color: rgba(242,242,244,.85); user-select: text; }
+.eplist { display: flex; flex-direction: column; }
+.ep { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 7px; cursor: default; }
+.ep:hover { background: rgba(255,255,255,.05); }
+.ep.selected { background: rgba(255,255,255,.10); }
+.ep .num { width: 32px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ep .num .play { display: none; border: 0; background: none; cursor: pointer; color: var(--text); }
+.ep:hover .num .play { display: inline; }
+.ep:hover .num .n { display: none; }
+.ep .num .ic.done { color: var(--accent); }
+.ep .titles { flex: 1; min-width: 0; }
+.ep .t { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ep.seen .t { color: var(--muted); }
+.ep .f { font-size: 11px; color: var(--tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ep .r { font-size: 10.5px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
+.ep .r .bar { width: 90px; height: 3px; border-radius: 3px; background: rgba(255,255,255,.14); overflow: hidden; }
+.ep .r .bar > div { height: 100%; background: var(--accent); }
+.ep .size { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ep-sep { height: 1px; background: rgba(255,255,255,.07); margin-left: 54px; }
+
+/* Lecteur intégré */
+.player { position: fixed; inset: 0; z-index: 500; background: #000; cursor: default; }
+.player video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.player.idle { cursor: none; }
+.player .chrome { position: absolute; inset: 0; pointer-events: none; transition: opacity .25s; }
+.player.idle .chrome { opacity: 0; }
+.player .top { position: absolute; left: 0; right: 0; top: 0; padding: 18px 22px 40px; background: linear-gradient(rgba(0,0,0,.7), transparent); display: flex; gap: 14px; align-items: flex-start; pointer-events: auto; }
+.player .top .t { font-size: 18px; font-weight: 600; }
+.player .top .s { color: rgba(255,255,255,.7); }
+.player .bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 22px 18px; background: linear-gradient(transparent, rgba(0,0,0,.75)); pointer-events: auto; display: flex; flex-direction: column; gap: 10px; }
+.player .seek { width: 100%; accent-color: var(--accent); }
+.player .ctl { display: flex; align-items: center; gap: 14px; color: #fff; }
+.player .ctl button { border: 0; background: none; color: #fff; cursor: pointer; padding: 4px; }
+.player .ctl .time { font-variant-numeric: tabular-nums; color: rgba(255,255,255,.85); }
+.player .osd { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.6); padding: 12px 18px; border-radius: 12px; font-size: 15px; pointer-events: none; }
+.player .err { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.player .err > div { max-width: 460px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
