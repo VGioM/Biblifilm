@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Biblifilm.app into ./dist and ad-hoc signs it.
+# Builds Biblifilm.app into ./dist and signs it.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -61,10 +61,25 @@ if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-echo "▸ Signing…"
+# The debug map names every source file by its absolute path on this Mac;
+# a release build has no use for it.
+[ "$CONFIG" = "release" ] && strip -S "$APP/Contents/MacOS/Biblifilm" 2>/dev/null
+
+# Signed with the local certificate when there is one (./signing-cert.sh makes
+# it). It is what the in-app updater checks a new version against, and what
+# lets macOS keep its permissions from one build to the next. Ad hoc otherwise.
+IDENTITY="-"
+if security find-identity -p codesigning 2>/dev/null | grep -q "VGioM Local Signing"; then
+    IDENTITY="VGioM Local Signing"
+fi
+if [ "$IDENTITY" = "-" ]; then
+    echo "▸ Signing (ad hoc — run ./signing-cert.sh for the local certificate)…"
+else
+    echo "▸ Signing ($IDENTITY)…"
+fi
 # The embedded framework must be signed before the app that contains it.
-codesign --force --sign - "$APP/Contents/Frameworks/VLCKit.framework" 2>/dev/null
-codesign --force --sign - "$APP/Contents/MacOS/Biblifilm" 2>/dev/null
-codesign --force --sign - "$APP" 2>/dev/null
+codesign --force --sign "$IDENTITY" "$APP/Contents/Frameworks/VLCKit.framework" 2>/dev/null
+codesign --force --sign "$IDENTITY" "$APP/Contents/MacOS/Biblifilm" 2>/dev/null
+codesign --force --sign "$IDENTITY" "$APP" 2>/dev/null
 
 echo "✓ Built $APP"

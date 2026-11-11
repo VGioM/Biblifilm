@@ -15,6 +15,10 @@ struct BiblifilmApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
 
+            CommandGroup(after: .appInfo) {
+                Button(SelfUpdate.menuTitle) { SelfUpdate.checkNow() }
+            }
+
             CommandGroup(after: .newItem) {
                 Button("Choisir un dossier…") { model.chooseFolder() }
                     .keyboardShortcut("o", modifiers: .command)
@@ -66,6 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #if DEBUG
         E2EHarness.installIfRequested()
+        #endif
+
+        // Les builds de développement (et les tests E2E) ne se mettent pas à jour.
+        #if !DEBUG
+        SelfUpdate.start(repo: "VGioM/Biblifilm")
         #endif
     }
 
