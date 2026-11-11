@@ -5,6 +5,10 @@ online (full title, episode name, synopsis, cover art) and plays it in VLC on cl
 
 Styled after Music.app in dark mode.
 
+## Télécharger
+
+**[⬇︎ Dernière version (macOS 14+, Apple Silicon)](https://github.com/VGioM/Biblifilm/releases/latest)** — décompressez, glissez Biblifilm.app dans Applications. Au premier lancement, autorisez-la dans Réglages Système → Confidentialité et sécurité → « Ouvrir quand même » (l'app n'est pas signée par Apple).
+
 ## Build
 
 ```bash
