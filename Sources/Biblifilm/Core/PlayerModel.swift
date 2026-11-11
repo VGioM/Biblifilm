@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import IOKit.pwr_mgt
 import VLCKit
 
 /// The in-app player: owns the VLC engine, exposes playback state to SwiftUI,
@@ -13,7 +12,7 @@ final class PlayerModel: NSObject, ObservableObject {
     /// The item on screen. Non-nil means the player is showing.
     @Published private(set) var current: MediaItem?
     @Published private(set) var isPlaying = false {
-        didSet { updateSleepAssertion() }
+        didSet { if isPlaying != oldValue { updateSleepAssertion() } }
     }
     @Published private(set) var isBuffering = false
     @Published private(set) var time: Double = 0        // seconds
@@ -387,32 +386,35 @@ final class PlayerModel: NSObject, ObservableObject {
 
     // MARK: - Veille
 
-    /// Held while a film is actually playing, so the display never dims and
-    /// the screen never locks mid-episode. Released on pause and on exit --
-    /// a paused player should not keep the Mac awake all night.
-    private var sleepAssertion: IOPMAssertionID = 0
+    /// Held while a film is actually playing. It does two things.
+    ///
+    /// The display never dims and the screen never locks mid-episode -- what
+    /// VLC itself does with its "NoDisplaySleep" power assertion.
+    ///
+    /// And macOS is told this is work the user is waiting on. Without that, an
+    /// app whose window sits behind another one -- Safari opened over the
+    /// film, say -- is fair game for App Nap and timer coalescing: its timers
+    /// and threads get batched up and slowed down to save energy, and a video
+    /// player feels that as stutter and drift until it is brought back to the
+    /// front. Released on pause and on exit -- a paused player should not keep
+    /// the Mac awake all night.
+    private var playbackActivity: NSObjectProtocol?
 
     private func updateSleepAssertion() {
         if current != nil && isPlaying { preventSleep() } else { allowSleep() }
     }
 
     private func preventSleep() {
-        guard sleepAssertion == 0 else { return }
-        var id: IOPMAssertionID = 0
-        // "NoDisplaySleep" is what VLC itself holds: it stops the idle timers
-        // that dim the screen, start the screen saver and lock the Mac.
-        let result = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypeNoDisplaySleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Biblifilm - lecture en cours" as CFString,
-            &id)
-        if result == kIOReturnSuccess { sleepAssertion = id }
+        guard playbackActivity == nil else { return }
+        playbackActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleDisplaySleepDisabled],
+            reason: "Biblifilm - lecture en cours")
     }
 
     private func allowSleep() {
-        guard sleepAssertion != 0 else { return }
-        IOPMAssertionRelease(sleepAssertion)
-        sleepAssertion = 0
+        guard let activity = playbackActivity else { return }
+        ProcessInfo.processInfo.endActivity(activity)
+        playbackActivity = nil
     }
 
     // MARK: - Tracks
@@ -643,18 +645,24 @@ final class PlayerModel: NSObject, ObservableObject {
         }
         lastPersist = .now
         lastPersistedPosition = position
-        WatchStore.shared.update(path: current.id, position: position, duration: duration)
+        WatchStore.shared.update(path: current.id, position: position, duration: duration,
+                                routine: !force)
     }
 
     fileprivate func handleTimeChanged() {
-        time = Double(player.time.intValue) / 1000.0
+        // Every assignment to a published property redraws the player screen,
+        // even when the value is the same, and this runs four times a second
+        // for the whole film. So only what actually changed is written.
+        let now = Double(player.time.intValue) / 1000.0
+        if now != time { time = now }
 
         // State notifications can be missed (the transition to .playing may
         // land before the delegate is attached), which would leave the spinner
         // up and the pause button showing "play". Time ticks are reliable, so
         // trust them for liveness.
-        isPlaying = player.isPlaying
-        if isPlaying { isBuffering = false }
+        let live = player.isPlaying
+        if live != isPlaying { isPlaying = live }
+        if live && isBuffering { isBuffering = false }
         if duration > 0 && time > 3 {
             hasPlayed = true
             openWatchdog?.cancel()

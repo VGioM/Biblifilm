@@ -49,6 +49,9 @@ enum E2EHarness {
         case "seek":        if parts.count > 1, let s = Double(parts[1]), player.duration > 0 {
                                 player.seek(toFraction: s / player.duration)
                             }
+        case "preview":     if parts.count > 1, let f = Double(parts[1]) {
+                                ScrubPreview.active?.request(fraction: f)
+                            }
         case "terminate":   NSApp.terminate(nil)
         case "cmdq":        pressCommandQ()
         case "fullscreen":  PlayerModel.shared.drawable?.window?.toggleFullScreen(nil)
@@ -73,6 +76,38 @@ enum E2EHarness {
         }
     }
 
+    /// A fingerprint of the vignette's current still, once it is the one asked
+    /// for: its size and a checksum of its pixels.
+    private static func previewDigest() -> String? {
+        guard let preview = ScrubPreview.active, !preview.isStale,
+              let image = preview.image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let data = image.dataProvider?.data as Data? else { return nil }
+        var sum: UInt64 = 1469598103934665603
+        for byte in data { sum = (sum ^ UInt64(byte)) &* 1099511628211 }
+        return "\(image.width)x\(image.height)-\(String(sum, radix: 16))"
+    }
+
+    /// Windows of ours the window server has on screen but that lie on no
+    /// display at all -- what the stills' hidden window used to be, and what
+    /// Mission Control then left stuck on the desktop.
+    private static func strayWindowCount() -> Int {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        // Window-server bounds are measured from the top of the main display.
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let displays = NSScreen.screens.map {
+            CGRect(x: $0.frame.minX, y: mainHeight - $0.frame.maxY,
+                   width: $0.frame.width, height: $0.frame.height)
+        }
+        return list.filter { info in
+            guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
+                  let dict = info[kCGWindowBounds as String] as! CFDictionary?,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return false }
+            return !displays.contains { $0.intersects(bounds) }
+        }.count
+    }
+
     /// The player as the script sees it, refreshed every half second.
     private static func writeState() {
         Task { @MainActor in
@@ -84,6 +119,8 @@ enum E2EHarness {
                     "duration": player.duration,
                     "isPlaying": player.isPlaying,
                     "canPlayNext": player.canPlayNext,
+                    "preview": previewDigest() ?? "",
+                    "strayWindows": strayWindowCount(),
                 ]
                 let url = AppSettings.supportDirectory.appendingPathComponent("e2e-state.json")
                 if let data = try? JSONSerialization.data(withJSONObject: state) {

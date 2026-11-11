@@ -2,21 +2,29 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var model: LibraryModel
-    @ObservedObject private var player = PlayerModel.shared
+    /// Not observed: the player publishes its clock four times a second, and
+    /// this view holds the whole library, toolbar and search field included.
+    /// Re-evaluating all of that on every tick of a film nobody is browsing
+    /// is wasted work, so only whether the player is showing is followed.
+    private let player = PlayerModel.shared
+    @State private var playerShowing = PlayerModel.shared.isPresenting
 
     var body: some View {
         ZStack {
             library
             // Playback takes over the whole window, like Netflix.
-            if player.isPresenting {
+            if playerShowing {
                 PlayerScreen(player: player, model: model)
                     .transition(.opacity)
                     .zIndex(1)
             }
         }
-        .toolbar(player.isPresenting ? .hidden : .automatic, for: .windowToolbar)
-        .toolbarBackground(player.isPresenting ? .hidden : .automatic, for: .windowToolbar)
-        .animation(.easeOut(duration: 0.22), value: player.isPresenting)
+        .toolbar(playerShowing ? .hidden : .automatic, for: .windowToolbar)
+        .toolbarBackground(playerShowing ? .hidden : .automatic, for: .windowToolbar)
+        .animation(.easeOut(duration: 0.22), value: playerShowing)
+        .onReceive(player.$current.map { $0 != nil }.removeDuplicates()) { showing in
+            if showing != playerShowing { playerShowing = showing }
+        }
     }
 
     private var library: some View {

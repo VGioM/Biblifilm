@@ -364,9 +364,42 @@ def rewatch_resume():
         app.kill()
 
 
+def scrub_preview():
+    """The seek-bar vignette shows the right still, and no hidden window.
+
+    The stills come from a second VLC player. It used to draw into a real
+    window parked off screen, which Mission Control then left stuck on the
+    desktop; it now draws into memory, so no window of ours may lie outside
+    the displays.
+    """
+    support = os.path.join(WORK, "scrub_preview")
+    app = App(support, [FILM])
+    try:
+        app.wait_until_time(2)
+        app.wait_for(lambda s: s.get("duration", 0) > 0, "duration")
+        seen = []
+        for fraction in (0.2, 0.5, 0.8):
+            app.send(f"preview {fraction}")
+            state = app.wait_for(lambda s: s.get("preview") and s["preview"] not in seen,
+                                 f"the still at {fraction}", timeout=20)
+            seen.append(state["preview"])
+        # Back to a position already decoded: straight from the cache.
+        app.send("preview 0.2")
+        app.wait_for(lambda s: s.get("preview") == seen[0], "the cached still")
+        stray = app.wait_for(lambda s: "strayWindows" in s, "window count")["strayWindows"]
+        check(stray == 0, f"{stray} window(s) of ours parked off every display")
+        width, height = map(int, seen[0].split("-")[0].split("x"))
+        check(width >= 336 and abs(width / height - 16 / 9) < 0.02,
+              f"still not in the film's 16:9 shape: {width}x{height}")
+        app.send("terminate")
+        app.wait_exit()
+    finally:
+        app.kill()
+
+
 SCENARIOS = [quit_menu, quit_keyboard, quit_fullscreen, quit_paused, quit_appleevent, sigterm, force_quit,
              close_window, escape, resume_after_quit, next_episode, end_of_file,
-             rewatch_resume]
+             rewatch_resume, scrub_preview]
 
 
 def main():

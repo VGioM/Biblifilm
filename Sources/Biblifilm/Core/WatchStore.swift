@@ -48,7 +48,14 @@ struct WatchRecord: Codable, Hashable {
 final class WatchStore: ObservableObject {
     static let shared = WatchStore()
 
-    @Published private(set) var records: [String: WatchRecord] = [:]
+    /// Not `@Published`: every change goes through `changed(_:)`, so that the
+    /// position a playing film reports every two seconds can be kept without
+    /// redrawing the library each time. See `update`.
+    private(set) var records: [String: WatchRecord] = [:] {
+        willSet { if publishes { objectWillChange.send() } }
+    }
+    private var publishes = true
+    private var lastQuietPublish: Date = .distantPast
 
     private let fileURL: URL
     private var saveTask: Task<Void, Never>?
@@ -71,14 +78,33 @@ final class WatchStore: ObservableObject {
         return r.position
     }
 
-    /// Called repeatedly while VLC plays.
-    func update(path: String, position: Double, duration: Double) {
+    /// Called repeatedly while VLC plays. `routine` marks the periodic save of
+    /// a film that is simply playing on, as opposed to a pause, a quit or the
+    /// player closing, which views must reflect at once.
+    func update(path: String, position: Double, duration: Double, routine: Bool = false) {
         var r = records[path] ?? WatchRecord()
         r.position = position
         if duration > 0 { r.duration = duration }
         r.lastPlayed = .now
         if r.progress >= WatchRecord.completionThreshold { r.watched = true }
+
+        // This runs every two seconds for the whole film, so that a crash or a
+        // force quit loses next to nothing. But every tile of the library
+        // observes this store, and the library stays mounted under the player:
+        // announcing each of those writes redrew every tile, every two seconds,
+        // behind a film nobody was browsing. The record is still updated -- and
+        // saved -- every time; views only hear about routine saves every 15
+        // seconds, or at once when something they show flips (resumable,
+        // watched, new).
+        let before = records[path]
+        let visible = before == nil
+            || before?.watched != r.watched
+            || before?.isResumable != r.isResumable
+        let quiet = routine && !visible && Date().timeIntervalSince(lastQuietPublish) < 15
+        if !quiet { lastQuietPublish = .now }
+        publishes = !quiet
         records[path] = r
+        publishes = true
         scheduleSave()
     }
 

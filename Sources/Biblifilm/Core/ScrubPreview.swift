@@ -19,8 +19,10 @@ import VLCKit
 /// on one H.265 film, three different positions came back as the same image,
 /// byte for byte, and three others came back plain black. A hidden player goes
 /// through VLC's normal decoder pick and answers with the right frame: every
-/// position tested came back distinct and correct, in about 0.25s on H.265 and
-/// 0.5s on AV1.
+/// position tested came back distinct and correct, in about 0.1s on 1080p
+/// H.265 and AV1 and on 4K H.265, and 1-2s on 4K AV1, which only decodes in
+/// software. That player draws into memory, never into a window: see
+/// FrameGrabber for why that matters.
 @MainActor
 final class ScrubPreview: NSObject, ObservableObject {
 
@@ -49,22 +51,32 @@ final class ScrubPreview: NSObject, ObservableObject {
     private var job: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
 
-    /// The hidden player the stills come from, and the offscreen window VLC
-    /// needs before it will decode anything at all.
-    private var player: VLCMediaPlayer?
-    private var window: NSWindow?
+    /// The hidden player the stills come from, and its opening while the
+    /// file's shape is being read.
+    private var player: FrameGrabber?
+    private var opening: Task<FrameGrabber?, Never>?
     private var warmUp: Task<Void, Never>?
+
+    #if DEBUG
+    /// The vignette of the player on screen, for the end-to-end tests.
+    static weak var active: ScrubPreview?
+    #endif
 
     override init() {
         super.init()
-        // 320x180 stills, ~150 of them: a little over 30 MB at worst, and the
+        // ~250 KB a still, so at most ~150 of them, about 40 MB: plenty for
+        // the ~240 buckets of a film, which are rarely all visited, and the
         // cache is emptied whenever the player moves to another file anyway.
         cache.countLimit = 150
+        cache.totalCostLimit = 40_000_000
     }
 
     /// Point the previews at a file. Called again as VLC discovers the
     /// duration, and for every following episode; a no-op when nothing moved.
     func configure(url: URL?, duration: Double) {
+        #if DEBUG
+        Self.active = self
+        #endif
         guard url != self.url || duration != self.duration else { return }
 
         if url != nil && url == self.url {
@@ -167,7 +179,8 @@ final class ScrubPreview: NSObject, ObservableObject {
         cancelDecode()
 
         if let decoded {
-            cache.setObject(decoded, forKey: NSNumber(value: bucket))
+            let pixels = decoded.representations.first.map { $0.pixelsWide * $0.pixelsHigh } ?? 0
+            cache.setObject(decoded, forKey: NSNumber(value: bucket), cost: pixels * 4)
             if bucket == wanted {
                 image = decoded
                 isStale = false
@@ -180,127 +193,127 @@ final class ScrubPreview: NSObject, ObservableObject {
 
     // MARK: - The hidden player
 
-    /// Seek the hidden player to `position` and ask VLC for a picture of what
-    /// it is showing.
+    /// Seek the hidden player to `position` and take the first picture it
+    /// decodes once it gets there.
     private func grabStill(url: URL, position: Double) async -> NSImage? {
-        let player = engine(for: url)
+        guard let player = await engine(for: url), !Task.isCancelled else { return nil }
         if !player.isPlaying { player.play() }
-
-        let before = player.time.value?.doubleValue ?? -1
-        player.position = Float(position)
         defer { player.pause() }
 
-        // Wait for the seek to land. Shooting straight away catches the frame
-        // VLC has not replaced yet, or a black one while the picture is still
-        // on its way -- half the stills came out black before this. The clock
-        // having moved at all is part of the test: after a short hop it can
-        // already read close to the target while still showing the old frame.
+        let before = player.time
+        player.seek(toPosition: position)
+
+        // Wait for the seek to land. The clock having moved at all is part of
+        // the test: after a short hop it can already read close to the target
+        // while still showing the old picture.
         let target = position * duration * 1000
+        var landed = false
         for _ in 0..<100 {
             if Task.isCancelled { return nil }
-            let now = player.time.value?.doubleValue ?? 0
-            if player.hasVideoOut && now != before && abs(now - target) < 3000 { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            let now = player.time
+            if now != before && abs(Double(now) - target) < 3000 { landed = true; break }
+            try? await Task.sleep(nanoseconds: 30_000_000)
         }
+        guard landed else { return nil }
 
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("biblifilm-still-\(UUID().uuidString).png").path
-        defer { try? FileManager.default.removeItem(atPath: path) }
-
-        // A request made before the video output is ready is dropped without a
-        // word, so keep asking until a file shows up. Width alone, so VLC
-        // works the height out from the display aspect: an anamorphic film
-        // would come out squashed if both were forced.
-        for _ in 0..<40 {
-            player.saveVideoSnapshot(at: path, withWidth: 320, andHeight: 0)
-            try? await Task.sleep(nanoseconds: 100_000_000)
+        // Then for pictures decoded from there on: the one VLC had already
+        // queued before the clock moved may still belong to the old spot, so
+        // the second one is taken. Software-decoded 4K AV1 can take well over
+        // a second for that; everything else answers in about 0.1s.
+        let start = player.frameCount
+        for _ in 0..<200 {
             if Task.isCancelled { return nil }
-            if FileManager.default.fileExists(atPath: path) {
-                return NSImage(contentsOfFile: path)
-            }
+            if player.frameCount >= start + 2 { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        return nil
+        guard player.frameCount > start else { return nil }
+        return player.latestImage()
     }
 
-    /// The hidden player, built once per file. VLC needs somewhere to render
-    /// before it will decode at all, hence a real window -- parked far off any
-    /// screen, where nobody will ever see it.
-    private func engine(for url: URL) -> VLCMediaPlayer {
+    /// The hidden player, built once per file. It draws into memory, not into
+    /// a window -- see FrameGrabber -- so it never shows up anywhere, Mission
+    /// Control included.
+    private func engine(for url: URL) async -> FrameGrabber? {
         if let player { return player }
+        if let opening { return await opening.value }
 
-        // Just under the bottom-left corner of the main display: off every
-        // screen, so nobody ever sees it, but a real coordinate rather than
-        // the wild -10,000 that used to sit here.
-        let origin = NSScreen.main.map { CGPoint(x: $0.frame.minX, y: $0.frame.minY - 400) }
-            ?? CGPoint(x: 0, y: -400)
-        let window = NSWindow(contentRect: NSRect(origin: origin, size: CGSize(width: 320, height: 180)),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        // Mission Control and Expose lay out every ordinary on-screen window an
-        // app owns, and this one exists only because VLC will not decode
-        // without somewhere to render. Left ordinary it joined that layout as
-        // an off-screen outlier, and Mission Control came up with no windows at
-        // all or left a thumbnail stuck over the desktop. `.stationary` takes
-        // it out of the Expose layout, `.ignoresCycle` out of window cycling,
-        // `.fullScreenNone` out of the full-screen machinery, and the desktop
-        // level keeps it below everything the window server composites.
-        window.collectionBehavior = [.stationary, .ignoresCycle, .fullScreenNone]
-        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
-        window.isExcludedFromWindowsMenu = true
-        window.ignoresMouseEvents = true
-        window.hasShadow = false
-        let view = VLCVideoView(frame: window.contentView!.bounds)
-        window.contentView?.addSubview(view)
-        window.orderBack(nil)
-
-        let media = VLCMedia(url: url)
-        media.addOption(":no-audio")
-        let player = VLCMediaPlayer()
-        // The render target goes on before play(), never after: the film
-        // itself showed what happens when VLC opens a file with nowhere to
-        // draw -- it gives up on the picture for the whole playback.
-        player.drawable = view
-        player.media = media
-
-        self.window = window
-        self.player = player
-        return player
+        let task = Task { () -> FrameGrabber? in
+            let size = await Self.stillSize(for: url)
+            return FrameGrabber(url: url, size: size)
+        }
+        opening = task
+        let grabber = await task.value
+        if opening == task { opening = nil }
+        // The file may have changed while the size was being read.
+        guard self.url == url else { return nil }
+        player = grabber
+        return grabber
     }
 
-    /// Opening the file, starting it and landing the first seek costs several
-    /// seconds -- measured at 5.5s on one film, against 0.25s for every still
-    /// after it. Paid here, quietly, a few seconds into the film, that whole
-    /// cost is gone before anyone reaches for the seek bar. The delay keeps
-    /// the second decoder off the opening scene, where the film itself is
-    /// still settling.
+    /// The size to decode the stills at. Big enough to fill the vignette on
+    /// a Retina screen (168x94.5 points, cropped to fill), and in the film's
+    /// real shape. VLC only tells the picture callbacks the coded size, which
+    /// includes the encoder's padding -- 1920x1152 for a 1080p AV1 -- and
+    /// ignores anamorphic pixels, so the shape comes from the file's track
+    /// list instead: a local parse, about 60ms.
+    private static func stillSize(for url: URL) async -> CGSize? {
+        let media = VLCMedia(url: url)
+        media.parse(options: [], timeout: 2000)
+        for _ in 0..<110 where media.parsedStatus != .done {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard let video = media.tracksInformation
+            .compactMap({ $0 as? [String: Any] })
+            .first(where: { $0[VLCMediaTracksInformationType] as? String == VLCMediaTracksInformationTypeVideo }),
+              let width = (video[VLCMediaTracksInformationVideoWidth] as? NSNumber)?.doubleValue,
+              let height = (video[VLCMediaTracksInformationVideoHeight] as? NSNumber)?.doubleValue,
+              width > 0, height > 0 else { return nil }
+
+        var aspect = width / height
+        if let num = (video[VLCMediaTracksInformationSourceAspectRatio] as? NSNumber)?.doubleValue,
+           let den = (video[VLCMediaTracksInformationSourceAspectRatioDenominator] as? NSNumber)?.doubleValue,
+           num > 0, den > 0 {
+            aspect *= num / den
+        }
+        guard aspect.isFinite, aspect > 0.2, aspect < 5 else { return nil }
+
+        // Cover 336x189 pixels, the vignette at 2x.
+        let target = CGSize(width: 336, height: 189)
+        return aspect >= target.width / target.height
+            ? CGSize(width: (target.height * aspect).rounded(), height: target.height)
+            : CGSize(width: target.width, height: (target.width / aspect).rounded())
+    }
+
+    /// Opening the file and showing its first picture is paid here, quietly,
+    /// a few seconds into the film, so the first still is as quick as the
+    /// rest. The delay keeps the second decoder off the opening scene, where
+    /// the film itself is still settling.
     private func scheduleWarmUp() {
         warmUp?.cancel()
         warmUp = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled, let self, let url = self.url,
-                  self.player == nil else { return }
-            let player = self.engine(for: url)
+                  self.player == nil, self.decoding == nil,
+                  let player = await self.engine(for: url),
+                  !Task.isCancelled, self.decoding == nil else { return }
             player.play()
             for _ in 0..<100 {
-                if Task.isCancelled { return }
-                if player.hasVideoOut { break }
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                if Task.isCancelled || self.decoding != nil { return }
+                if player.frameCount > 0 { break }
+                try? await Task.sleep(nanoseconds: 30_000_000)
             }
             // Leave it parked: a paused player costs nothing and is ready to
             // seek the moment the pointer touches the bar.
-            player.pause()
+            if self.decoding == nil { player.pause() }
         }
     }
 
     private func teardown() {
         warmUp?.cancel()
         warmUp = nil
-        player?.stop()
+        opening?.cancel()
+        opening = nil
+        // Releasing the grabber stops VLC and frees its buffer.
         player = nil
-        // `orderOut` alone leaves the window in the app's list, where the
-        // window server still counts it; `close` is what actually retires it.
-        window?.orderOut(nil)
-        window?.close()
-        window = nil
     }
 }
