@@ -18,7 +18,7 @@ struct SettingsView: View {
             general.tabItem { Label("Général", systemImage: "gearshape") }
             metadata.tabItem { Label("Métadonnées", systemImage: "sparkle.magnifyingglass") }
         }
-        .frame(width: 480, height: 355)
+        .frame(width: 480, height: 520)
         .task { await refreshCacheInfo() }
     }
 
@@ -61,6 +61,7 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            SelfUpdateSettings()
         }
         .formStyle(.grouped)
     }
