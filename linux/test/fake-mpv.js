@@ -38,6 +38,8 @@ const server = net.createServer((c) => {
       const until = f === files.length - 1 ? DUR / 2 : DUR;
       for (let t = from; t <= until; t += 0.5) { send({ event: 'property-change', name: 'time-pos', data: t }); await sleep(10); }
       if (until === DUR) send({ event: 'end-file', reason: 'eof' });
+      // Comme mpv : les pistes se vident entre deux fichiers.
+      send({ event: 'property-change', name: 'current-tracks/audio', data: null });
     }
     await sleep(2300);
     process.exit(0);

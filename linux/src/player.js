@@ -177,7 +177,9 @@ class MpvSession {
         case 'current-tracks/audio':
         case 'current-tracks/sub':
           // Un choix fait par l'utilisateur, pas par nous en chargeant le fichier.
-          if (this.loaded && !this.applying) {
+          // Sans piste audio, c'est un changement de fichier, jamais un choix : mpv vide
+          // les pistes entre deux épisodes.
+          if (this.loaded && !this.applying && (msg.data || msg.name.endsWith('sub'))) {
             this.hooks.tracks(msg.name.endsWith('audio') ? 'audio' : 'sub', msg.data ? trackLabel(msg.data) : 'none');
           }
           break;
@@ -185,7 +187,10 @@ class MpvSession {
       }
     } else if (msg.event === 'file-loaded') {
       this.onFileLoaded();
-    } else if (msg.event === 'end-file' && msg.reason === 'eof') {
+    } else if (msg.event === 'end-file') {
+      // Ce qui suit (pistes vidées, fichier suivant) n'est plus un choix de l'utilisateur.
+      this.loaded = false;
+      if (msg.reason !== 'eof') return;
       // Fin réelle du fichier : l'épisode est vu.
       if (this.dur > 0 && this.played > 3) { this.pos = this.dur; this.save(false); }
     }
@@ -242,4 +247,33 @@ class MpvSession {
   }
 }
 
-module.exports = { detect, MpvSession, openInVLC, commonDir };
+/**
+ * Installe mpv depuis Flathub, pour l'utilisateur : pas de mot de passe à
+ * demander. Rend null si c'est fait, sinon la raison de l'échec.
+ */
+function installMpv(onProgress) {
+  return new Promise((resolve) => {
+    if (!which('flatpak')) { resolve('Flatpak est introuvable : installez mpv avec le gestionnaire de paquets de votre distribution.'); return; }
+    const run = (args, next) => {
+      const p = spawn('flatpak', args, { env: { ...process.env, LC_ALL: 'C' } });
+      let out = '';
+      const take = (d) => {
+        out += d;
+        const m = /(\d+)%/.exec(d.toString());
+        if (m && onProgress) onProgress(Number(m[1]));
+      };
+      p.stdout.on('data', take); p.stderr.on('data', take);
+      p.on('error', (e) => next(e.message));
+      p.on('close', (code) => next(code === 0 ? null : (out.trim().split('\n').pop() || `code ${code}`)));
+    };
+    // Flathub pour l'utilisateur, ajouté s'il manque (c'est le dépôt officiel de Flatpak).
+    run(['remote-add', '--user', '--if-not-exists', 'flathub', 'https://dl.flathub.org/repo/flathub.flatpakrepo'], () => {
+      run(['install', '-y', '--noninteractive', '--user', 'flathub', 'io.mpv.Mpv'], (err) => {
+        detect(true);
+        resolve(err && !detect().mpv ? `L'installation de mpv a échoué : ${err}` : null);
+      });
+    });
+  });
+}
+
+module.exports = { detect, MpvSession, openInVLC, commonDir, installMpv };

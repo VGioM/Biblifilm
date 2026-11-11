@@ -32,6 +32,8 @@ let win = null;
 
 const M = {
   items: [], isScanning: false, scanProgress: '', isFetching: false, metadataProgress: 0, errorMessage: null,
+  mpvInstall: null,   // null, ou « Installation de mpv… 42 % », ou le message d'échec
+  mpvInstalling: false,
 };
 
 // ── Envoi de l'état à l'interface, par morceaux ────────────────────────────
@@ -54,6 +56,7 @@ function push(...parts) {
         errorMessage: M.errorMessage, settings: settings.all(), hasTMDBKey: !!settings.get('tmdbAPIKey').trim(),
         players: { mpv: players.mpv && players.mpv.label, vlc: players.vlc && players.vlc.label },
         cacheCount: metadata.count, autoUpdate: SelfUpdate.automatic(), version: app.getVersion(),
+        mpvInstall: M.mpvInstall, mpvInstalling: M.mpvInstalling,
       };
     }
     dirty.clear();
@@ -382,6 +385,20 @@ function openExternally(ids) {
   if (!Player.openInVLC(files, Player.detect().vlc)) shell.openPath(files[0]);
 }
 
+// ── Installer mpv ──────────────────────────────────────────────────────────
+
+/** mpv lit tout : Biblifilm l'installe lui-même (Flathub, pour l'utilisateur). */
+async function installMpv() {
+  if (M.mpvInstalling || Player.detect(true).mpv) return null;
+  M.mpvInstalling = true; M.mpvInstall = 'Installation de mpv…';
+  push('status');
+  const problem = await Player.installMpv((pct) => { M.mpvInstall = `Installation de mpv… ${pct} %`; push('status'); });
+  M.mpvInstalling = false;
+  M.mpvInstall = problem;
+  push('status');
+  return problem;
+}
+
 // ── Canaux de l'interface ──────────────────────────────────────────────────
 
 let keyTimer = null;
@@ -448,6 +465,7 @@ const calls = {
   },
   cacheInfo: async () => ({ count: metadata.count, bytes: await session.defaultSession.getCacheSize() }),
   detectPlayers: () => { Player.detect(true); push('status'); },
+  installMpv: () => installMpv(),
   setAutoUpdate: (on) => { SelfUpdate.setAutomatic(on); buildMenu(); push('status'); },
   checkUpdates: () => SelfUpdate.checkNow(),
   openExternal: (url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); },
@@ -517,8 +535,12 @@ if (!app.requestSingleInstanceLock()) {
     SelfUpdate.start(REPO, settings);
     buildMenu();
     createWindow();
-    Player.detect();
     rescan();
+    // Sans mpv, Biblifilm l'installe tout seul, une fois : le lecteur intégré ne lit pas tout.
+    if (!Player.detect().mpv && settings.get('player') !== 'builtin' && !settings.get('mpvAutoInstallTried')) {
+      settings.set('mpvAutoInstallTried', true);
+      installMpv();
+    }
   });
   // Une dernière écriture en quittant, sinon une fermeture en pleine lecture
   // perd jusqu'à deux secondes — assez pour effacer une reprise en début d'épisode.

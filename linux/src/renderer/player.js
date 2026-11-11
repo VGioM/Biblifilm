@@ -107,8 +107,8 @@
     const box = document.createElement('div');
     box.className = 'err';
     box.innerHTML = `<div>${icon('warning', 34)}<div style="font-size:16px;font-weight:600">Ce fichier ne peut pas être lu ici</div>
-      <div style="color:rgba(255,255,255,.7)">Le lecteur intégré ne connaît pas ce format (${esc(item.ext.toUpperCase())}). Installez mpv pour tout lire dans Biblifilm :<br><code>flatpak install flathub io.mpv.Mpv</code></div>
-      <div class="hstack"><button class="btn primary" data-p="external">Ouvrir dans un lecteur externe</button><button class="btn" data-p="close">Retour</button></div></div>`;
+      <div style="color:rgba(255,255,255,.7)">Le lecteur intégré ne connaît pas ce format (${esc(item.ext.toUpperCase())}). mpv lit tout : Biblifilm peut l'installer (Flathub, sans mot de passe), puis relancer la lecture avec lui.</div>
+      <div class="hstack"><button class="btn primary" data-p="installMpv">Installer mpv et lire</button><button class="btn" data-p="external">Lecteur externe</button><button class="btn" data-p="close">Retour</button></div></div>`;
     s.el.appendChild(box);
   }
 
@@ -179,6 +179,17 @@
       case 'next': if (s.index + 1 < s.queue.length) load(s, s.index + 1, 0); break;
       case 'fs': fullscreen(); break;
       case 'external': { const id = s.queue[s.index].id; close(); api.call('openExternally', [id]); break; }
+      case 'installMpv': {
+        const id = s.queue[s.index].id;
+        const box = s.el.querySelector('.err > div');
+        if (box) box.innerHTML = '<span class="spinner large"></span><div>Installation de mpv…</div>';
+        api.call('installMpv').then((problem) => {
+          if (problem) { if (box) box.innerHTML = `<div>${esc(problem)}</div><button class="btn" data-p="close">Retour</button>`; return; }
+          close();
+          api.call('play', id);
+        });
+        break;
+      }
       default:
     }
   }

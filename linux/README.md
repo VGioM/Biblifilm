@@ -11,11 +11,11 @@ Télécharger `Biblifilm-<version>-linux-x86_64.AppImage` dans les
 [releases](https://github.com/VGioM/Biblifilm/releases), le rendre exécutable
 (`chmod +x`) et le lancer. Les mises à jour se font ensuite depuis l'app (menu Aide).
 
-**Conseillé : mpv**, pour tout lire.
-
-```sh
-flatpak install flathub io.mpv.Mpv     # ou le paquet mpv de la distribution
-```
+**mpv est installé tout seul.** Au premier lancement, si mpv est absent, Biblifilm
+l'installe depuis Flathub (`io.mpv.Mpv`, pour votre compte : aucun mot de passe). En
+cas d'échec, le bouton « Installer mpv » de Réglages → Lecture et de l'écran d'erreur du
+lecteur intégré recommence. Un mpv déjà installé (paquet de la distribution ou Flatpak)
+est utilisé tel quel.
 
 ## La lecture
 
@@ -28,7 +28,7 @@ Sur Mac, le lecteur est intégré (VLCKit). Sur Linux, deux lecteurs :
   reprise, épisode vu au-delà de 92 %, lecture comptée seulement après 3 secondes
   vraiment jouées, dernière écriture en quittant. Les pistes audio et sous-titres
   choisies sont reconnues à leur libellé et réappliquées à l'épisode suivant.
-- **Le lecteur intégré**, quand mpv est absent (ou choisi dans Réglages → Lecture) :
+- **Le lecteur intégré**, en attendant mpv (ou s'il est choisi dans Réglages → Lecture) :
   l'écran devient le film, comme sur Mac. Il lit ce que Chromium décode (MP4, WebM, la
   plupart des MKV en H.264/VP9/AV1 avec AAC ou Opus) ; un fichier qu'il ne sait pas lire
   affiche une erreur et « Ouvrir dans un lecteur externe » au lieu de compter l'épisode

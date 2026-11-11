@@ -32,4 +32,6 @@ test('reprise, épisode vu, suite de la saison, piste audio retenue', async () =
   const last2 = updates.filter((u) => u.id === 'e2').pop();
   assert.ok(last2.pos >= 29 && last2.pos <= 30, `épisode 2 quitté au milieu (${last2.pos})`);
   assert.strictEqual(last2.routine, false, 'une dernière écriture en quittant');
+  // Le choix de la piste française est retenu ; les pistes vidées entre deux fichiers, non.
+  assert.deepStrictEqual(tracks, [['audio', { title: 'Français VFF', lang: 'fre' }]]);
 });

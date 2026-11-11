@@ -76,6 +76,7 @@
     let sub = '';
     if (status.isScanning) sub = status.scanProgress;
     else if (status.isFetching) sub = `Recherche des infos… ${Math.round(status.metadataProgress * 100)} %`;
+    else if (status.mpvInstalling) sub = status.mpvInstall;
     else if (season) sub = season.subtitle;
     else if (entries.length) sub = `${entries.length} élément${entries.length > 1 ? 's' : ''}`;
     $('subtitle').textContent = sub;
@@ -430,7 +431,9 @@
               <select data-k="player"><option value="auto" ${s.player === 'auto' ? 'selected' : ''}>Automatique (mpv s'il est installé)</option><option value="builtin" ${s.player === 'builtin' ? 'selected' : ''}>Lecteur intégré</option></select>
               <div class="hstack">${icon(mpv ? 'checkCircle' : 'warning', 15)}<span>${mpv ? esc(mpv) + ' : installé' : 'mpv : introuvable'}</span></div>
               <div class="help">${mpv ? 'Avec mpv, tous les formats sont lus (MKV, x265, EAC3, sous-titres) ; la reprise, les épisodes vus et le choix des pistes sont suivis.'
-                : 'Le lecteur intégré lit MP4, WebM et la plupart des MKV en H.264. Pour tout lire : <code>flatpak install flathub io.mpv.Mpv</code> (ou le paquet mpv de votre distribution), puis « Détecter ».'}</div>
+                : 'Sans mpv, le lecteur intégré lit MP4, WebM et la plupart des MKV en H.264. mpv lit tout : Biblifilm l\'installe depuis Flathub, pour votre compte, sans mot de passe.'}</div>
+              ${mpv ? '' : status.mpvInstalling ? `<div class="hstack"><span class="spinner"></span><span>${esc(status.mpvInstall)}</span></div>`
+                : `<div class="hstack"><button class="btn primary" data-a="installMpv">Installer mpv</button>${status.mpvInstall ? `<span style="color:var(--warm);font-size:12px">${esc(status.mpvInstall)}</span>` : ''}</div>`}
               ${check('fullscreen', 'Ouvrir mpv en plein écran')}
               <div class="hstack">${icon(vlc ? 'checkCircle' : 'info', 15)}<span>${vlc ? esc(vlc) + ' : installé (« Ouvrir dans VLC »)' : "VLC : introuvable — « Ouvrir dans un lecteur externe » utilise l'app par défaut"}</span></div>
               <div><button class="btn" data-a="detect">Détecter</button></div></div>
@@ -472,6 +475,7 @@
               case 'auto': api.call('setAutoUpdate', b.checked); break;
               case 'checkUpdates': api.call('checkUpdates'); break;
               case 'detect': await api.call('detectPlayers'); setTimeout(draw, 300); break;
+              case 'installMpv': api.call('installMpv').then(() => setTimeout(draw, 300)); setTimeout(draw, 300); break;
               case 'restore': { const n = await api.call('restoreWatch'); box.querySelector('#restoreMsg').textContent = n > 0 ? `${n} entrées restaurées.` : 'Aucune sauvegarde utilisable.'; break; }
               case 'getKey': api.call('openExternal', 'https://www.themoviedb.org/settings/api'); break;
               case 'test': {
