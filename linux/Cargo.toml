@@ -1,6 +1,6 @@
 [package]
 name = "biblifilm"
-version = "1.3.2"
+version = "1.3.3"
 edition = "2021"
 description = "Bibliothèque de films et séries, identifiés en ligne, lus avec mpv intégré"
 license = "UNLICENSED"
