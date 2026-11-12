@@ -46,14 +46,14 @@ struct SelfUpdateTests {
 
     @Test func theLatestReleaseIsRead() async throws {
         let dir = try scratch()
-        let feed = dir.appendingPathComponent("latest.json")
+        let feed = dir.appendingPathComponent("releases.json")
         try Data("""
-        {"tag_name": "v9.8.7", "html_url": "https://github.com/o/r/releases/tag/v9.8.7",
-         "body": "## Nouveautés\\n\\n- Une chose",
-         "assets": [
-           {"name": "App-9.8.7-windows-x64.zip", "browser_download_url": "https://example.invalid/w.zip", "size": 1},
-           {"name": "App-9.8.7-macOS-arm64.zip", "browser_download_url": "https://example.invalid/m.zip", "size": 4096}
-         ]}
+        [{"tag_name": "v9.8.7", "html_url": "https://github.com/o/r/releases/tag/v9.8.7",
+          "body": "## Nouveautés\\n\\n- Une chose",
+          "assets": [
+            {"name": "App-9.8.7-windows-x64.zip", "browser_download_url": "https://example.invalid/w.zip", "size": 1},
+            {"name": "App-9.8.7-macOS-arm64.zip", "browser_download_url": "https://example.invalid/m.zip", "size": 4096}
+          ]}]
         """.utf8).write(to: feed)
 
         let release = try await SelfUpdate.latest(repo: "o/r", feed: feed)
@@ -63,14 +63,44 @@ struct SelfUpdateTests {
         #expect(release.notes == "Nouveautés\n\n• Une chose")
     }
 
-    @Test func aReleaseWithoutMacZipIsRefused() async throws {
-        let feed = try scratch().appendingPathComponent("latest.json")
+    @Test func theNewestMacReleaseWinsOverALaterLinuxOne() async throws {
+        let feed = try scratch().appendingPathComponent("releases.json")
         try Data("""
-        {"tag_name": "v1.0.0", "html_url": "https://github.com/o/r", "body": null,
-         "assets": [{"name": "App-1.0.0-linux.tar.gz", "browser_download_url": "https://example.invalid/l", "size": 1}]}
+        [{"tag_name": "v1.3.4", "html_url": "https://github.com/o/r/releases/tag/v1.3.4", "body": "Linux",
+          "draft": false, "prerelease": false,
+          "assets": [{"name": "App-1.3.4-x86_64.AppImage", "browser_download_url": "https://example.invalid/l", "size": 1}]},
+         {"tag_name": "v1.3.3", "html_url": "https://github.com/o/r/releases/tag/v1.3.3", "body": "Préversion",
+          "draft": false, "prerelease": true,
+          "assets": [{"name": "App-1.3.3-macOS-arm64.zip", "browser_download_url": "https://example.invalid/pre.zip", "size": 2}]},
+         {"tag_name": "v1.3.2", "html_url": "https://github.com/o/r/releases/tag/v1.3.2", "body": "Mac",
+          "assets": [{"name": "App-1.3.2-macOS-arm64.zip", "browser_download_url": "https://example.invalid/mac.zip", "size": 3}]}]
         """.utf8).write(to: feed)
-        await #expect(throws: SelfUpdate.Failure.self) {
-            _ = try await SelfUpdate.latest(repo: "o/r", feed: feed)
+
+        let release = try await SelfUpdate.latest(repo: "o/r", feed: feed)
+        #expect(release.version == "1.3.2")
+        #expect(release.download.absoluteString == "https://example.invalid/mac.zip")
+    }
+
+    @Test func theHighestNumberWinsWhateverTheOrder() throws {
+        let data = Data("""
+        [{"tag_name": "v1.2.0", "html_url": "h", "assets": [{"name": "A-macOS.zip", "browser_download_url": "a", "size": 1}]},
+         {"tag_name": "v1.10.0", "html_url": "h", "assets": [{"name": "B-macOS.zip", "browser_download_url": "b", "size": 1}]},
+         {"tag_name": "v2.0.0", "html_url": "h", "draft": true, "assets": [{"name": "C-macOS.zip", "browser_download_url": "c", "size": 1}]}]
+        """.utf8)
+        let releases = try JSONDecoder().decode([SelfUpdate.GitHubRelease].self, from: data)
+        #expect(SelfUpdate.pick(releases)?.0.tag_name == "v1.10.0")
+        #expect(SelfUpdate.pick([]) == nil)
+    }
+
+    @Test func noMacReleaseIsRefused() async throws {
+        let feed = try scratch().appendingPathComponent("releases.json")
+        try Data("""
+        [{"tag_name": "v1.0.0", "html_url": "https://github.com/o/r", "body": null,
+          "assets": [{"name": "App-1.0.0-linux.tar.gz", "browser_download_url": "https://example.invalid/l", "size": 1}]}]
+        """.utf8).write(to: feed)
+        await #expect { _ = try await SelfUpdate.latest(repo: "o/r", feed: feed) } throws: { error in
+            if case SelfUpdate.Failure.noZip = error { return true }
+            return false
         }
     }
 
