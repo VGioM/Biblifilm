@@ -37,7 +37,7 @@ pub struct Release {
 #[derive(Deserialize)]
 struct GhAsset { name: String, browser_download_url: String, size: u64, digest: Option<String> }
 #[derive(Deserialize)]
-struct GhRelease { tag_name: String, html_url: Option<String>, body: Option<String>, assets: Vec<GhAsset> }
+struct GhRelease { tag_name: String, html_url: Option<String>, body: Option<String>, assets: Vec<GhAsset>, #[serde(default)] draft: bool, #[serde(default)] prerelease: bool }
 
 pub fn clean(tag: &str) -> String {
     let t = tag.trim();
@@ -77,16 +77,28 @@ pub fn readable_notes(body: &str) -> String {
     }).collect::<Vec<_>>().join("\n").trim().to_string()
 }
 
+/// Parmi les releases, la plus récente qui contient une AppImage Linux. Mac et
+/// Linux partagent les releases du dépôt sans suivre la même numérotation : la
+/// dernière publiée peut n'être que pour Mac, et ne doit pas cacher une version
+/// Linux plus ancienne qu'elle mais plus récente que celle installée.
+fn pick(releases: &[GhRelease]) -> Option<(usize, usize)> {
+    releases.iter().enumerate().filter(|(_, r)| !r.draft && !r.prerelease)
+        .filter_map(|(i, r)| linux_asset(&r.assets.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).map(|a| (i, a)))
+        .fold(None, |best: Option<(usize, usize)>, (i, a)| match best {
+            Some((b, _)) if !is_newer(&releases[i].tag_name, &releases[b].tag_name) => best,
+            _ => Some((i, a)),
+        })
+}
+
 fn latest(repo: &str, app: &str) -> Result<Release, String> {
     let agent = super::images::http_agent();
-    let mut resp = agent.get(&format!("https://api.github.com/repos/{repo}/releases/latest"))
+    let mut resp = agent.get(&format!("https://api.github.com/repos/{repo}/releases?per_page=30"))
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", &format!("{app}-updater"))
         .call().map_err(|e| format!("GitHub n'a pas répondu correctement ({e})."))?;
-    let rel: GhRelease = resp.body_mut().read_json().map_err(|_| "GitHub n'a pas répondu correctement (réponse illisible).".to_string())?;
-    let names: Vec<String> = rel.assets.iter().map(|a| a.name.clone()).collect();
-    let i = linux_asset(&names).ok_or("La dernière release ne contient pas encore de version Linux.")?;
-    let a = &rel.assets[i];
+    let rels: Vec<GhRelease> = resp.body_mut().read_json().map_err(|_| "GitHub n'a pas répondu correctement (réponse illisible).".to_string())?;
+    let (r, i) = pick(&rels).ok_or("Aucune release ne contient encore de version Linux.")?;
+    let (rel, a) = (&rels[r], &rels[r].assets[i]);
     Ok(Release {
         version: clean(&rel.tag_name),
         notes: readable_notes(rel.body.as_deref().unwrap_or("")),
@@ -331,6 +343,19 @@ mod tests {
         let names = vec!["App-1.4.0-macOS-arm64.zip".to_string(), "App-1.4.0-linux-x86_64.AppImage".into(), "App-1.4.0-windows-x64.zip".into()];
         assert_eq!(linux_asset(&names), Some(1));
         assert_eq!(linux_asset(&names[..1].to_vec()), None);
+    }
+    #[test]
+    fn newest_release_with_an_appimage() {
+        let rel = |tag: &str, files: &[&str], pre: bool| GhRelease { tag_name: tag.into(), html_url: None, body: None, draft: false, prerelease: pre,
+            assets: files.iter().map(|n| GhAsset { name: n.to_string(), browser_download_url: String::new(), size: 0, digest: None }).collect() };
+        let list = vec![
+            rel("v1.4.0", &["App-1.4.0-macOS-arm64.zip"], false),                 // la dernière : Mac seulement
+            rel("v1.5.0", &["App-1.5.0-linux-x86_64.AppImage"], true),            // préversion : ignorée
+            rel("v1.3.3", &["App-1.3.3-linux-x86_64.AppImage"], false),
+            rel("v1.3.2", &["App-1.3.2-macOS-arm64.zip", "App-1.3.2-linux-x86_64.AppImage"], false),
+        ];
+        assert_eq!(pick(&list), Some((2, 0)));
+        assert_eq!(pick(&list[..1]), None);
     }
     #[test]
     fn notes() {

@@ -1,12 +1,16 @@
 #!/bin/bash
-# Construit l'AppImage Linux et l'ajoute à une release GitHub déjà publiée,
-# à côté du zip macOS (qui n'est pas touché).
+# Construit l'AppImage Linux et la publie dans les releases GitHub, à côté des
+# zips macOS (qui ne sont jamais touchés).
 #
 #   ./release-linux.sh            version lue dans Cargo.toml
 #   ./release-linux.sh 1.4.0      version donnée : Cargo.toml est mis à jour
 #
-# La release vX.Y.Z doit exister (./release.sh sur main la crée avec la version
-# Mac). Le fichier ajouté s'appelle Biblifilm-X.Y.Z-linux-x86_64.AppImage : c'est
+# Mac et Linux partagent les releases du dépôt mais pas forcément leurs numéros :
+# si la release vX.Y.Z existe (une version Mac du même numéro), l'AppImage y est
+# ajoutée ; sinon une release Linux seule est créée. Chaque mise à jour intégrée
+# prend la release la plus récente qui contient son propre fichier.
+#
+# Le fichier ajouté s'appelle Biblifilm-X.Y.Z-linux-x86_64.AppImage : c'est
 # celui que la mise à jour intégrée de la version Linux cherche, et que la
 # version Mac ignore. Une AppImage déjà présente sous ce nom est remplacée.
 #
@@ -23,9 +27,6 @@ VERSION="${1:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}"
 TAG="v$VERSION"
 FILE="dist/$NAME-$VERSION-linux-x86_64.AppImage"
 
-gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
-    || { echo "✗ La release $TAG n'existe pas : publiez d'abord la version Mac (./release.sh sur main)."; exit 1; }
-
 echo "▸ Version $VERSION…"
 sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
 
@@ -33,8 +34,15 @@ rm -rf dist
 ./build-appimage.sh
 [ -f "$FILE" ] || { echo "✗ $FILE introuvable."; exit 1; }
 
-echo "▸ Ajout à la release $TAG…"
-gh release upload "$TAG" "$FILE" -R "$REPO" --clobber
+if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+    echo "▸ Ajout à la release $TAG…"
+    gh release upload "$TAG" "$FILE" -R "$REPO" --clobber
+else
+    echo "▸ Release Linux $TAG…"
+    git push -q origin HEAD
+    gh release create "$TAG" "$FILE" -R "$REPO" --target "$(git rev-parse HEAD)" --title "$NAME $VERSION" \
+        --notes "Version Linux uniquement : rien ne change pour la version Mac."
+fi
 
 # La section Linux des notes : remplacée si elle existe, ajoutée sinon.
 NOTES="$(gh release view "$TAG" -R "$REPO" --json body -q .body)"

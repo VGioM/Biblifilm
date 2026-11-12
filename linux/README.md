@@ -83,9 +83,11 @@ release, vérifie son empreinte SHA-256 publiée par GitHub, puis remplace l'App
 ## Publier
 
 ```sh
-./release.sh 1.4.0                      # sur main, sur un Mac : la release et le zip macOS
-cd linux && ./release-linux.sh 1.4.0    # ici : ajoute l'AppImage à cette release
+cd linux && ./release-linux.sh 1.4.0    # l'AppImage, dans la release v1.4.0 (créée si besoin)
 ```
 
-La version Mac ne prend que le fichier marqué `macOS`, la version Linux que
-`-linux-x86_64.AppImage` : les deux vivent dans la même release sans se gêner.
+Mac et Linux partagent les releases du dépôt, pas leurs numéros : une release peut
+contenir le zip Mac, l'AppImage, ou les deux. Chaque version ne prend que son fichier
+(`-macOS-arm64.zip` ou `-linux-x86_64.AppImage`) et se met à jour vers la release la
+plus récente qui le contient ; une release Mac seule ne cache pas une version Linux,
+et inversement. Un numéro (un tag) ne sert qu'une fois.
