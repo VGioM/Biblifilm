@@ -1,6 +1,6 @@
 # Biblifilm
 
-> **Linux :** une version Linux (AppImage) vit dans le dossier [`linux/`](linux/README.md) de cette branche. Elle est publiée dans les mêmes [releases](https://github.com/VGioM/Biblifilm/releases), à côté du zip macOS : `Biblifilm-<version>-linux-x86_64.AppImage`. Elle lit avec mpv, qu'elle installe elle-même depuis Flathub au premier lancement.
+> **Linux :** une version Linux native (Rust, AppImage) vit dans le dossier [`linux/`](linux/README.md) de cette branche. Elle est publiée dans les mêmes [releases](https://github.com/VGioM/Biblifilm/releases), à côté du zip macOS : `Biblifilm-<version>-linux-x86_64.AppImage`. Elle lit les vidéos dans sa fenêtre avec libmpv, inclus : rien d'autre à installer.
 
 A macOS app that scans a folder for anything VLC can play, identifies each file
 online (full title, episode name, synopsis, cover art) and plays it in VLC on click.

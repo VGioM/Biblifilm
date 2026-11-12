@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Biblifilm
+Comment=Bibliothèque de films et séries, identifiés en ligne, lus avec mpv intégré
+Exec=biblifilm
+Icon=biblifilm
+Categories=AudioVideo;Video;Player;
+StartupWMClass=biblifilm
+Terminal=false
