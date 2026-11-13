@@ -60,7 +60,8 @@ fi
 
 echo "▸ AppImage…"
 rm -f "$OUT" "$OUT.squashfs"
-mksquashfs "$APPDIR" "$OUT.squashfs" -root-owned -noappend -comp xz -b 1048576 -quiet >/dev/null
+# gzip, pas xz : avec xz, charger libmpv prenait 12 s au lancement (zstd : non lu par ce runtime).
+mksquashfs "$APPDIR" "$OUT.squashfs" -root-owned -noappend -comp gzip -b 131072 -quiet >/dev/null
 cat "$RUNTIME" "$OUT.squashfs" > "$OUT"
 rm -f "$OUT.squashfs"
 chmod +x "$OUT"

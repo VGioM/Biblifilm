@@ -121,7 +121,7 @@ impl App {
             search: String::new(), focus_search: false, opened_season: None, selected: None, banner_dismissed: false,
             scanning: false, scan_progress: Arc::default(), fetching: false, fetch_total: 0, fetch_done: 0, run: Arc::default(), scan_run: 0,
             tx, rx, watcher: None, changed: Arc::default(), changed_at: None, key_changed_at: None, last_key,
-            session: None, inhibit: None, mpv_error: mpv::available().err(),
+            session: None, inhibit: None, mpv_error: { mpv::preload(); None },
             error: None, toast: Toast::default(), settings_open: None, correction: None, key_status: None, restore_msg: None,
             pending_folder: None, update: SelfUpdate::new(REPO, "Biblifilm"), fullscreen: false,
             test: Default::default(), test_done: false,

@@ -678,7 +678,7 @@ fn general(app: &mut App, ui: &mut Ui, acts: &mut Vec<Action>) {
 fn playback(app: &mut App, ui: &mut Ui) {
     let p = app.p;
     ui::group(ui, &p, "Lecteur", |ui| {
-        match &app.mpv_error {
+        match app.mpv_error.clone().or_else(crate::mpv::load_error) {
             None => {
                 ui.horizontal(|ui| { ui.add(icons::image("checkCircle", 15.0, p.ok)); ui.label("mpv est intégré à Biblifilm"); });
                 ui.label(RichText::new("Tous les formats sont lus dans la fenêtre (MKV, x265 10 bits, EAC3, sous-titres ASS). Espace lecture/pause, ←/→ 10 s, ↑/↓ volume, B piste audio, V sous-titres, F plein écran, Échap.").size(11.5).color(p.muted));

@@ -93,7 +93,13 @@ fn load() -> Result<Api, String> {
 
 fn api() -> Result<&'static Api, String> { API.get_or_init(load).as_ref().map_err(|e| e.clone()) }
 
-pub fn available() -> Result<(), String> { api().map(|_| ()) }
+
+/// Charge libmpv dans un thread, pour que la fenêtre s'ouvre sans attendre
+/// (depuis l'AppImage, la chaîne libmpv + FFmpeg est décompressée à la lecture).
+pub fn preload() { std::thread::spawn(|| { let _ = api(); }); }
+
+/// L'erreur de chargement, si le chargement est terminé et a échoué (sans bloquer).
+pub fn load_error() -> Option<String> { API.get().and_then(|r| r.as_ref().err().cloned()) }
 
 // ── Le contexte OpenGL de la fenêtre, pour mpv ────────────────────────────
 
