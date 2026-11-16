@@ -46,7 +46,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, progress: &dyn Fn(usize)) -> Vec<It
     items
 }
 
-/// La surveillance du dossier (inotify). Les événements sont regroupés : un
+/// La surveillance du dossier (ReadDirectoryChangesW, par notify). Les événements sont regroupés : un
 /// téléchargement en cours ne doit pas déclencher dix analyses.
 pub fn watch(root: &Path, ctx: egui::Context, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Option<notify::RecommendedWatcher> {
     use notify::{RecursiveMode, Watcher};

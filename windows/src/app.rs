@@ -11,7 +11,7 @@ use crate::common::ui::Toast;
 use crate::library::{self, ScanOptions, WatchStore};
 use crate::metadata::{Candidate, Service, Tmdb};
 use crate::model::{self, Entry, Item, Metadata, Watch};
-use crate::mpv;
+use crate::vlc;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -30,7 +30,7 @@ pub enum Bg {
 
 /// Une séance de lecture dans la fenêtre.
 pub struct Session {
-    pub player: mpv::Player,
+    pub player: vlc::Player,
     pub queue: Vec<String>,
     pub titles: Vec<(String, String)>,
     pub last_saved: f64,
@@ -121,7 +121,7 @@ impl App {
             search: String::new(), focus_search: false, opened_season: None, selected: None, banner_dismissed: false,
             scanning: false, scan_progress: Arc::default(), fetching: false, fetch_total: 0, fetch_done: 0, run: Arc::default(), scan_run: 0,
             tx, rx, watcher: None, changed: Arc::default(), changed_at: None, key_changed_at: None, last_key,
-            session: None, inhibit: None, mpv_error: { mpv::preload(); None },
+            session: None, inhibit: None, mpv_error: { vlc::preload(); None },
             error: None, toast: Toast::default(), settings_open: None, correction: None, key_status: None, restore_msg: None,
             pending_folder: None, update: SelfUpdate::new(REPO, "Biblifilm"), fullscreen: false,
             test: Default::default(), test_done: false,
@@ -381,7 +381,7 @@ impl App {
         let queue: Vec<usize> = std::iter::once(i).chain(rest).collect();
         let files: Vec<String> = queue.iter().map(|&k| self.items[k].path.to_string_lossy().to_string()).collect();
         self.stop_playback();
-        match mpv::Player::new(&files, start, ctx, self.settings.f64("volume").max(0.0), "fr,fre,fra,en,eng") {
+        match vlc::Player::new(&files, start, ctx, self.settings.f64("volume").max(0.0), "fr,fre,fra,en,eng") {
             Ok(player) => {
                 self.session = Some(Session {
                     player, queue: queue.iter().map(|&k| self.items[k].id.clone()).collect(),
@@ -429,7 +429,7 @@ impl App {
         self.watch.save_now();
     }
 
-    /// Les pistes mémorisées (par libellé : mpv renumérote à chaque fichier), réappliquées.
+    /// Les pistes mémorisées (par libellé : les numéros changent à chaque fichier), réappliquées.
     pub fn apply_track_prefs(&mut self) {
         let prefs = self.settings.get("trackPrefs");
         let Some(s) = &mut self.session else { return };
@@ -439,7 +439,7 @@ impl App {
             if want.is_null() { continue; }
             if want.as_str() == Some("none") { if kind == "sub" { s.player.select_track("sub", None); } continue; }
             let (t, l) = (want["title"].as_str().unwrap_or(""), want["lang"].as_str().unwrap_or(""));
-            let list: Vec<&mpv::Track> = s.player.tracks.iter().filter(|x| x.kind == kind).collect();
+            let list: Vec<&vlc::Track> = s.player.tracks.iter().filter(|x| x.kind == kind).collect();
             let hit = list.iter().find(|x| x.title == t && x.lang == l)
                 .or_else(|| if t.is_empty() { None } else { list.iter().find(|x| x.title == t) })
                 .or_else(|| if l.is_empty() { None } else { list.iter().find(|x| x.lang == l) });
@@ -450,7 +450,7 @@ impl App {
     }
 
     /// Un choix de piste fait par l'utilisateur, retenu pour la suite.
-    pub fn choose_track(&mut self, kind: &str, track: Option<mpv::Track>) {
+    pub fn choose_track(&mut self, kind: &str, track: Option<vlc::Track>) {
         let Some(s) = &mut self.session else { return };
         s.player.select_track(kind, track.as_ref().map(|t| t.id));
         s.player.refresh_tracks();
@@ -472,8 +472,8 @@ impl App {
         let events = s.player.poll();
         for ev in events {
             match ev {
-                mpv::Event::Loaded(_) => { self.apply_track_prefs(); }
-                mpv::Event::Eof(k) => {
+                vlc::Event::Loaded(_) => { self.apply_track_prefs(); }
+                vlc::Event::Eof(k) => {
                     // Fin réelle du fichier : l'épisode est vu.
                     if let Some(s) = &self.session {
                         if s.player.played > 3.0 && s.player.duration > 0.0 {
@@ -482,8 +482,8 @@ impl App {
                         }
                     }
                 }
-                mpv::Event::Error(_, e) => { if let Some(s) = &mut self.session { s.error = Some(e); } }
-                mpv::Event::Finished => { self.stop_playback(); return; }
+                vlc::Event::Error(_, e) => { if let Some(s) = &mut self.session { s.error = Some(e); } }
+                vlc::Event::Finished => { self.stop_playback(); return; }
             }
         }
         let Some(s) = &mut self.session else { return };
@@ -499,28 +499,23 @@ impl App {
         self.save_position(true);
     }
 
+    /// VLC : celui livré avec Biblifilm, sinon celui installé.
+    fn vlc_exe() -> Option<PathBuf> {
+        vlc::bundled_vlc_exe()
+            .or_else(|| std::env::var_os("ProgramFiles").map(|p| PathBuf::from(p).join(r"VideoLAN\VLC\vlc.exe")).filter(|p| p.is_file()))
+            .or_else(|| sys::which("vlc"))
+    }
+
     pub fn open_externally(&self, id: &str) {
         let Some(i) = self.index_of(id) else { return };
         let path = self.items[i].path.clone();
-        let flatpak_vlc = std::path::Path::new("/var/lib/flatpak/app/org.videolan.VLC").exists()
-            || dirs::data_dir().map(|d| d.join("flatpak/app/org.videolan.VLC").exists()).unwrap_or(false);
-        let mut c;
-        if sys::which("vlc").is_some() {
-            c = sys::clean_command("vlc");
-        } else if flatpak_vlc {
-            c = sys::clean_command("flatpak");
-            c.args(["run", &format!("--filesystem={}:ro", path.parent().unwrap_or(&path).display()), "org.videolan.VLC"]);
-        } else {
-            c = sys::clean_command("xdg-open");
+        match Self::vlc_exe() {
+            Some(v) => { let mut c = std::process::Command::new(v); c.arg(&path); let _ = sys::spawn_detached(c); }
+            None => sys::open_path(&path),
         }
-        c.arg(&path);
-        let _ = sys::spawn_detached(c);
     }
 
-    pub fn has_vlc(&self) -> bool {
-        sys::which("vlc").is_some() || std::path::Path::new("/var/lib/flatpak/app/org.videolan.VLC").exists()
-            || dirs::data_dir().map(|d| d.join("flatpak/app/org.videolan.VLC").exists()).unwrap_or(false)
-    }
+    pub fn has_vlc(&self) -> bool { Self::vlc_exe().is_some() }
 }
 
 impl App {
@@ -535,7 +530,7 @@ impl App {
         let id = self.items[i].id.clone();
         match verb {
             "play" => self.play(ctx, &id, false, None),
-            "paused" => { self.play(ctx, &id, false, None); if let Some(s) = &self.session { s.player.set("pause", "yes"); } }
+            "paused" => { self.play(ctx, &id, false, None); if let Some(s) = &mut self.session { s.player.set("pause", "yes"); } }
             "season" => { if let Some(s) = model::season_of(&self.items, i) { self.selected = Some(id); self.opened_season = Some(s.id); } }
             _ => self.selected = Some(id),
         }

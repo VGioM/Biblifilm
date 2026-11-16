@@ -1,4 +1,4 @@
-//! L'écran de lecture : la vidéo (rendue par libmpv dans le contexte OpenGL de
+//! L'écran de lecture : la vidéo (rendue par libVLC dans le contexte OpenGL de
 //! la fenêtre) occupe toute la fenêtre, et les commandes sont posées dessus.
 //!
 //! Espace lecture/pause · ←/→ 10 s · ↑/↓ et molette : volume · B piste audio
@@ -69,7 +69,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
     egui::CentralPanel::default().frame(egui::Frame::new().fill(Color32::BLACK)).show(ctx, |ui| {
         let full = ui.max_rect();
-        // La vidéo, dessinée par mpv dans le tampon de la fenêtre.
+        // La vidéo, décodée par VLC et copiée dans le tampon de la fenêtre.
         let surface = s.player.surface.clone();
         let ctx_ptr = s.player.ctx_ptr();
         let cb = egui_glow::CallbackFn::new(move |info, painter| {
@@ -90,7 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.vertical_centered(|ui| {
                         ui.add(icons::image("warning", 34.0, p.warm));
                         ui.label(RichText::new("Ce fichier ne peut pas être lu").font(theme::bold(16.0)));
-                        ui.label(RichText::new(format!("mpv : {e}")).color(Color32::from_white_alpha(180)));
+                        ui.label(RichText::new(format!("VLC : {e}")).color(Color32::from_white_alpha(180)));
                         ui.horizontal(|ui| {
                             if ui.button("Ouvrir dans un lecteur externe").clicked() { external = Some(id.clone()); close = true; }
                             if ui.button("Retour").clicked() { close = true; }
@@ -167,11 +167,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-thread_local! { static PICKS: std::cell::RefCell<Vec<(&'static str, Option<crate::mpv::Track>)>> = std::cell::RefCell::new(vec![]); }
+thread_local! { static PICKS: std::cell::RefCell<Vec<(&'static str, Option<crate::vlc::Track>)>> = std::cell::RefCell::new(vec![]); }
 
 /// Les pistes audio ou de sous-titres, avec « Aucun » en tête pour les sous-titres.
-fn track_menu(ui: &mut egui::Ui, kind: &'static str, tip: &str, tracks: &[crate::mpv::Track], p: &crate::common::theme::Palette) {
-    let list: Vec<&crate::mpv::Track> = tracks.iter().filter(|t| t.kind == kind).collect();
+fn track_menu(ui: &mut egui::Ui, kind: &'static str, tip: &str, tracks: &[crate::vlc::Track], p: &crate::common::theme::Palette) {
+    let list: Vec<&crate::vlc::Track> = tracks.iter().filter(|t| t.kind == kind).collect();
     if list.is_empty() && kind == "audio" { return; }
     let icon = if kind == "audio" { "music" } else { "doc" };
     ui.menu_image_button(icons::image(icon, 18.0, Color32::WHITE), |ui| {

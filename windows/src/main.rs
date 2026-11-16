@@ -1,18 +1,20 @@
-//! Biblifilm pour Linux : analyse un dossier, identifie chaque fichier en ligne
+#![windows_subsystem = "windows"]
+//! Biblifilm pour Windows : analyse un dossier, identifie chaque fichier en ligne
 //! (titre complet, épisode, synopsis, affiche) et le lit dans la fenêtre avec
-//! libmpv, en suivant la reprise de lecture et les épisodes vus.
+//! libVLC, en suivant la reprise de lecture et les épisodes vus.
 
 mod app;
 mod common;
 mod library;
 mod metadata;
 mod model;
-mod mpv;
+mod vlc;
 mod parser;
 mod player_ui;
 mod views;
 
 fn main() -> eframe::Result {
+    common::selfupdate::cleanup_old();
     let icon = image::load_from_memory(include_bytes!("../resources/icon.png")).ok().map(|i| {
         let i = i.to_rgba8();
         let (w, h) = i.dimensions();

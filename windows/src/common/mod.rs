@@ -1,4 +1,4 @@
-//! Le socle commun aux trois apps Linux (Biblifilm, Biblijeu, Recomps) : le
+//! Le socle commun aux trois apps Windows (Biblifilm, Biblijeu, Recomps) : le
 //! même dossier `common/` vit dans chacune, une correction faite ici se reporte
 //! dans les deux autres.
 

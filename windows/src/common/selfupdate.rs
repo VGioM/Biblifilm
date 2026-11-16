@@ -1,14 +1,15 @@
-//! Met l'app à jour depuis ses releases GitHub (version Linux de
+//! Met l'app à jour depuis ses releases GitHub (version Windows de
 //! SelfUpdate.swift). Le même fichier vit dans Biblifilm, Biblijeu et Recomps.
 //!
 //! Au lancement (au plus une fois toutes les 20 h, sauf si la recherche
-//! automatique est désactivée), l'app lit la dernière release de son dépôt. Une
-//! même release porte un fichier par plateforme : seul
-//! `<App>-<version>-linux-x86_64.AppImage` est pris ici, jamais le zip macOS. Si
-//! la version est plus récente, l'app propose de l'installer : l'AppImage est
-//! téléchargée à côté de celle en place, vérifiée (empreinte SHA-256 publiée par
-//! GitHub, en-tête ELF, taille), rendue exécutable, puis échangée avec
-//! l'ancienne par un simple renommage, et l'app se relance.
+//! automatique est désactivée), l'app lit les releases de son dépôt. Une même
+//! release porte un fichier par plateforme : seul
+//! `<App>-<version>-windows-x64.zip` est pris ici. Si la version est plus
+//! récente, l'app propose de l'installer : le zip est téléchargé, vérifié
+//! (empreinte SHA-256 publiée par GitHub, en-tête zip, taille) et décompressé à
+//! côté ; chaque fichier en place est renommé en `.old` (Windows le permet même
+//! pour un programme ouvert), le nouveau prend sa place, et l'app se relance.
+//! Les `.old` sont effacés au lancement suivant.
 
 use super::store::Settings;
 use super::theme::Palette;
@@ -58,16 +59,16 @@ pub fn is_newer(a: &str, b: &str) -> bool {
     false
 }
 
-/// L'AppImage Linux de la release, et elle seule.
-pub fn linux_asset(names: &[String]) -> Option<usize> {
-    names.iter().position(|n| n.to_lowercase().ends_with("-linux-x86_64.appimage"))
-        .or_else(|| names.iter().position(|n| { let l = n.to_lowercase(); l.ends_with(".appimage") && (l.contains("x86_64") || l.contains("amd64") || l.contains("x64")) }))
+/// Le zip Windows de la release, et lui seul.
+pub fn windows_asset(names: &[String]) -> Option<usize> {
+    names.iter().position(|n| n.to_lowercase().ends_with("-windows-x64.zip"))
+        .or_else(|| names.iter().position(|n| { let l = n.to_lowercase(); l.ends_with(".zip") && (l.contains("windows") || l.contains("win64") || l.contains("win-x64")) }))
 }
 
 /// Les notes telles qu'on les lit, sans le Markdown ni les parties « Installation » et « Linux ».
 pub fn readable_notes(body: &str) -> String {
     let mut text = body.replace("\r\n", "\n");
-    for cut in ["## Installation", "## Linux"] {
+    for cut in ["## Installation", "## Linux", "## Windows"] {
         if let Some(i) = text.find(cut) { text.truncate(i); }
     }
     text.lines().map(|l| {
@@ -77,13 +78,13 @@ pub fn readable_notes(body: &str) -> String {
     }).collect::<Vec<_>>().join("\n").trim().to_string()
 }
 
-/// Parmi les releases, la plus récente qui contient une AppImage Linux. Mac et
-/// Linux partagent les releases du dépôt sans suivre la même numérotation : la
-/// dernière publiée peut n'être que pour Mac, et ne doit pas cacher une version
-/// Linux plus ancienne qu'elle mais plus récente que celle installée.
+/// Parmi les releases, la plus récente qui contient un zip Windows. Mac, Linux
+/// et Windows partagent les releases du dépôt sans suivre la même numérotation :
+/// la dernière publiée peut n'être que pour Mac, et ne doit pas cacher une
+/// version Windows plus ancienne qu'elle mais plus récente que celle installée.
 fn pick(releases: &[GhRelease]) -> Option<(usize, usize)> {
     releases.iter().enumerate().filter(|(_, r)| !r.draft && !r.prerelease)
-        .filter_map(|(i, r)| linux_asset(&r.assets.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).map(|a| (i, a)))
+        .filter_map(|(i, r)| windows_asset(&r.assets.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).map(|a| (i, a)))
         .fold(None, |best: Option<(usize, usize)>, (i, a)| match best {
             Some((b, _)) if !is_newer(&releases[i].tag_name, &releases[b].tag_name) => best,
             _ => Some((i, a)),
@@ -97,7 +98,7 @@ fn latest(repo: &str, app: &str) -> Result<Release, String> {
         .header("User-Agent", &format!("{app}-updater"))
         .call().map_err(|e| format!("GitHub n'a pas répondu correctement ({e})."))?;
     let rels: Vec<GhRelease> = resp.body_mut().read_json().map_err(|_| "GitHub n'a pas répondu correctement (réponse illisible).".to_string())?;
-    let (r, i) = pick(&rels).ok_or("Aucune release ne contient encore de version Linux.")?;
+    let (r, i) = pick(&rels).ok_or("Aucune release ne contient encore de version Windows.")?;
     let (rel, a) = (&rels[r], &rels[r].assets[i]);
     Ok(Release {
         version: clean(&rel.tag_name),
@@ -109,19 +110,54 @@ fn latest(repo: &str, app: &str) -> Result<Release, String> {
     })
 }
 
-/// Télécharge, vérifie et met la nouvelle AppImage à la place de `target`.
-fn install(rel: &Release, target: &Path, progress: impl Fn(f32)) -> Result<(), String> {
-    let dir = target.parent().ok_or("emplacement inconnu")?;
-    let writable = |p: &Path| std::fs::metadata(p).map(|m| !m.permissions().readonly()).unwrap_or(false);
-    if !writable(dir) || !writable(target) {
+/// Le dossier où vit l'app (celui de l'exe).
+pub fn install_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
+}
+
+/// Efface les restes d'une mise à jour précédente (`*.old`), au lancement.
+pub fn cleanup_old() {
+    fn walk(d: &Path, depth: u32) {
+        let Ok(rd) = std::fs::read_dir(d) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() { if depth < 4 { walk(&p, depth + 1); } }
+            else if p.extension().map(|x| x == "old").unwrap_or(false) { let _ = std::fs::remove_file(&p); }
+        }
+    }
+    if let Some(d) = install_dir() { walk(&d, 0); }
+}
+
+/// Remplace chaque fichier de `from` dans `to` : l'ancien est renommé en `.old`.
+fn swap_in(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for e in std::fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
+        let (src, dst) = (e.path(), to.join(e.file_name()));
+        if src.is_dir() { swap_in(&src, &dst)?; continue; }
+        if dst.exists() {
+            let old = PathBuf::from(format!("{}.old", dst.display()));
+            let _ = std::fs::remove_file(&old);
+            std::fs::rename(&dst, &old).map_err(|e| format!("{} : {e}", dst.display()))?;
+        }
+        std::fs::rename(&src, &dst).map_err(|e| format!("{} : {e}", dst.display()))?;
+    }
+    Ok(())
+}
+
+/// Télécharge, vérifie et pose la nouvelle version dans `dir`.
+fn install(rel: &Release, dir: &Path, progress: impl Fn(f32)) -> Result<(), String> {
+    let probe = dir.join(format!(".write-test-{}", std::process::id()));
+    if std::fs::write(&probe, b"").is_err() {
         return Err("Impossible de remplacer l'app à son emplacement actuel (droits insuffisants).".into());
     }
-    let staging = dir.join(format!(".{}.update-{}", target.file_name().unwrap().to_string_lossy(), std::process::id()));
+    let _ = std::fs::remove_file(&probe);
+    let zip = dir.join(format!(".update-{}.zip", std::process::id()));
+    let unpack = dir.join(format!(".update-{}", std::process::id()));
     let result = (|| -> Result<(), String> {
         let agent = super::images::http_agent();
         let resp = agent.get(&rel.download).call().map_err(|e| format!("Téléchargement impossible ({e})."))?;
         let mut reader = resp.into_body().into_reader();
-        let mut out = std::fs::File::create(&staging).map_err(|e| e.to_string())?;
+        let mut out = std::fs::File::create(&zip).map_err(|e| e.to_string())?;
         let mut hash = Sha256::new();
         let mut buf = vec![0u8; 1 << 16];
         let mut done: u64 = 0;
@@ -138,14 +174,24 @@ fn install(rel: &Release, target: &Path, progress: impl Fn(f32)) -> Result<(), S
         if rel.size > 0 && done != rel.size { return Err("Le fichier téléchargé est incomplet.".into()); }
         let hex: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
         if let Some(d) = &rel.digest { if &hex != d { return Err("L'empreinte du fichier téléchargé ne correspond pas à celle publiée sur GitHub.".into()); } }
-        let mut head = [0u8; 4];
-        std::fs::File::open(&staging).and_then(|mut f| f.read_exact(&mut head)).map_err(|e| e.to_string())?;
-        if head != [0x7f, b'E', b'L', b'F'] { return Err("Le fichier téléchargé n'est pas une AppImage.".into()); }
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-        std::fs::rename(&staging, target).map_err(|e| e.to_string())
+        let mut head = [0u8; 2];
+        std::fs::File::open(&zip).and_then(|mut f| f.read_exact(&mut head)).map_err(|e| e.to_string())?;
+        if head != [b'P', b'K'] { return Err("Le fichier téléchargé n'est pas un zip.".into()); }
+        let _ = std::fs::remove_dir_all(&unpack);
+        std::fs::create_dir_all(&unpack).map_err(|e| e.to_string())?;
+        let ok = super::sys::clean_command(super::sys::system_tar()).arg("-xf").arg(&zip).arg("-C").arg(&unpack)
+            .status().map(|s| s.success()).unwrap_or(false);
+        if !ok { return Err("Le zip téléchargé n'a pas pu être décompressé.".into()); }
+        // Le zip contient un dossier <App>/ : on prend son contenu.
+        let mut root = unpack.clone();
+        let entries: Vec<_> = std::fs::read_dir(&unpack).map_err(|e| e.to_string())?.flatten().collect();
+        if entries.len() == 1 && entries[0].path().is_dir() { root = entries[0].path(); }
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        if !root.join(exe.file_name().unwrap()).is_file() { return Err("Le zip ne contient pas l'app.".into()); }
+        swap_in(&root, dir)
     })();
-    if result.is_err() { let _ = std::fs::remove_file(&staging); }
+    let _ = std::fs::remove_file(&zip);
+    let _ = std::fs::remove_dir_all(&unpack);
     result
 }
 
@@ -245,16 +291,16 @@ impl SelfUpdate {
                 if close { next = Some(Dialog::None); }
             }
             Dialog::Offer(r) => {
-                let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
+                let appimage = install_dir();
                 let r = r.clone();
                 let mut choice = 0;
                 super::ui::modal(ctx, "selfupdate-offer", 460.0, |ui| {
                     ui.label(egui::RichText::new(format!("{} {} est disponible", self.app, r.version)).font(super::theme::bold(15.0)));
                     let size = if r.size > 0 { format!(" ({})", super::sys::bytes(r.size)) } else { String::new() };
                     ui.label(if appimage.is_some() {
-                        format!("Vous avez la version {}. La mise à jour télécharge la nouvelle version{size}, remplace l'AppImage et relance l'app.", self.version)
+                        format!("Vous avez la version {}. La mise à jour télécharge la nouvelle version{size}, remplace l'app et la relance.", self.version)
                     } else {
-                        format!("Vous avez la version {}. L'app n'est pas lancée depuis son AppImage : la page de la release va s'ouvrir.", self.version)
+                        format!("Vous avez la version {}. L'emplacement de l'app est inconnu : la page de la release va s'ouvrir.", self.version)
                     });
                     if !r.notes.is_empty() {
                         egui::Frame::new().fill(p.panel2).corner_radius(8).inner_margin(8).show(ui, |ui| {
@@ -316,14 +362,11 @@ impl SelfUpdate {
         if let Some(n) = next { self.dialog = n; }
     }
 
-    /// Après la fermeture : relance la nouvelle AppImage si une mise à jour vient d'être posée.
+    /// Après la fermeture : relance la nouvelle version si une mise à jour vient d'être posée.
     pub fn relaunch_if_needed(&self) {
         if !self.relaunch_requested { return; }
-        if let Some(app) = std::env::var_os("APPIMAGE") {
-            let pid = std::process::id();
-            let mut c = super::sys::clean_command("sh");
-            c.args(["-c", &format!("while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; exec \"$0\""), &app.to_string_lossy()]);
-            let _ = super::sys::spawn_detached(c);
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = super::sys::spawn_detached(std::process::Command::new(exe));
         }
     }
 }
@@ -339,20 +382,20 @@ mod tests {
         assert!(is_newer("2", "1.99"));
     }
     #[test]
-    fn only_the_linux_appimage() {
+    fn only_the_windows_zip() {
         let names = vec!["App-1.4.0-macOS-arm64.zip".to_string(), "App-1.4.0-linux-x86_64.AppImage".into(), "App-1.4.0-windows-x64.zip".into()];
-        assert_eq!(linux_asset(&names), Some(1));
-        assert_eq!(linux_asset(&names[..1].to_vec()), None);
+        assert_eq!(windows_asset(&names), Some(2));
+        assert_eq!(windows_asset(&names[..2].to_vec()), None);
     }
     #[test]
-    fn newest_release_with_an_appimage() {
+    fn newest_release_with_a_windows_zip() {
         let rel = |tag: &str, files: &[&str], pre: bool| GhRelease { tag_name: tag.into(), html_url: None, body: None, draft: false, prerelease: pre,
             assets: files.iter().map(|n| GhAsset { name: n.to_string(), browser_download_url: String::new(), size: 0, digest: None }).collect() };
         let list = vec![
             rel("v1.4.0", &["App-1.4.0-macOS-arm64.zip"], false),                 // la dernière : Mac seulement
-            rel("v1.5.0", &["App-1.5.0-linux-x86_64.AppImage"], true),            // préversion : ignorée
-            rel("v1.3.3", &["App-1.3.3-linux-x86_64.AppImage"], false),
-            rel("v1.3.2", &["App-1.3.2-macOS-arm64.zip", "App-1.3.2-linux-x86_64.AppImage"], false),
+            rel("v1.5.0", &["App-1.5.0-windows-x64.zip"], true),                  // préversion : ignorée
+            rel("v1.3.3", &["App-1.3.3-windows-x64.zip"], false),
+            rel("v1.3.2", &["App-1.3.2-macOS-arm64.zip", "App-1.3.2-windows-x64.zip"], false),
         ];
         assert_eq!(pick(&list), Some((2, 0)));
         assert_eq!(pick(&list[..1]), None);
