@@ -88,7 +88,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.vertical_centered(|ui| {
                         ui.add(icons::image("warning", 34.0, p.warm));
                         ui.label(RichText::new("Ce fichier ne peut pas être lu").font(theme::bold(16.0)));
-                        ui.label(RichText::new(format!("VLC : {e}")).color(Color32::from_white_alpha(180)));
+                        ui.label(RichText::new(format!("VLC : {e}")).color(theme::white(180)));
                         ui.horizontal(|ui| {
                             if ui.button("Ouvrir dans un lecteur externe").clicked() { external = Some(id.clone()); close = true; }
                             if ui.button("Retour").clicked() { close = true; }
@@ -106,7 +106,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let back = crate::common::ui::circle_button(ui, top.min + Vec2::new(40.0, 40.0), "chevronLeft", ui.id().with("back"));
             if back.on_hover_text("Retour (Échap)").clicked() { close = true; }
             ui.painter().text(top.min + Vec2::new(74.0, 24.0), Align2::LEFT_TOP, &title, theme::bold(18.0), Color32::WHITE);
-            ui.painter().text(top.min + Vec2::new(74.0, 48.0), Align2::LEFT_TOP, &sub, theme::regular(13.0), Color32::from_white_alpha(180));
+            ui.painter().text(top.min + Vec2::new(74.0, 48.0), Align2::LEFT_TOP, &sub, theme::regular(13.0), theme::white(180));
 
             // En bas : barre de lecture et commandes.
             let bottom = Rect::from_min_max(egui::pos2(full.left(), full.bottom() - 110.0), full.max);
@@ -117,26 +117,28 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let pl = &mut s.player;
             let dur = pl.duration.max(0.0);
             let mut pos = pl.position.min(dur.max(0.001));
-            ui.spacing_mut().slider_width = inner.width();
-            let r = ui.add(egui::Slider::new(&mut pos, 0.0..=dur.max(0.001)).show_value(false).trailing_fill(true));
+            let r = scrubber(ui, &mut pos, dur.max(0.001), inner.width());
             if r.drag_stopped() || (r.changed() && !r.dragged()) { pl.seek_absolute(pos); }
             ui.horizontal(|ui| {
-                let white = Color32::WHITE;
-                let btn = |ui: &mut egui::Ui, icon: &str, tip: &str| ui.add(egui::Button::image(icons::image(icon, 22.0, white)).frame(false)).on_hover_text(tip.to_string()).clicked();
-                if btn(ui, if pl.paused { "play" } else { "pause" }, "Lecture/pause (Espace)") { pl.toggle_pause(); }
-                if ui.add(egui::Button::new(RichText::new("−10").color(white)).frame(false)).on_hover_text("Reculer de 10 s (←)").clicked() { pl.seek_relative(-10.0); }
-                if ui.add(egui::Button::new(RichText::new("+10").color(white)).frame(false)).on_hover_text("Avancer de 10 s (→)").clicked() { pl.seek_relative(10.0); }
-                ui.label(RichText::new(format!("{} / {}", format_time(pl.position), format_time(dur))).color(Color32::from_white_alpha(220)).monospace());
+                ui.spacing_mut().item_spacing.x = 8.0;
+                if control(ui, "gobackward", 27.0, "Reculer de 10 s (←)", Some("10")) { pl.seek_relative(-10.0); }
+                if control(ui, if pl.paused { "play" } else { "pause" }, 25.0, "Lecture/pause (Espace)", None) { pl.toggle_pause(); }
+                if control(ui, "goforward", 27.0, "Avancer de 10 s (→)", Some("10")) { pl.seek_relative(10.0); }
+                if pl.index + 1 < pl.count && control(ui, "forwardEnd", 19.0, "Épisode suivant (N)", None) { pl.next(); }
+                ui.add_space(4.0);
+                ui.label(RichText::new(format!("{} / {}", format_time(pl.position), format_time(dur))).color(theme::white(210)).monospace());
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if btn(ui, "grid", "Plein écran (F, double-clic)") { toggle_fs = true; }
-                    let mut vol = pl.volume;
-                    ui.spacing_mut().slider_width = 90.0;
-                    if ui.add(egui::Slider::new(&mut vol, 0.0..=130.0).show_value(false)).changed() { pl.set_volume(vol); }
-                    ui.add(icons::image("volume", 18.0, white));
-                    if pl.index + 1 < pl.count && btn(ui, "chevronRight", "Épisode suivant (N)") { pl.next(); }
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                    if control(ui, if fs { "shrink" } else { "expand" }, 17.0, if fs { "Quitter le plein écran (Échap)" } else { "Plein écran (F, double-clic)" }, None) { toggle_fs = true; }
                     let tracks = pl.tracks.clone();
-                    track_menu(ui, "sub", "Sous-titres (V)", &tracks, &p);
-                    track_menu(ui, "audio", "Pistes audio (B)", &tracks, &p);
+                    let sub_on = tracks.iter().any(|t| t.kind == "sub" && t.selected);
+                    if tracks.iter().any(|t| t.kind == "sub") { track_menu(ui, "sub", if sub_on { "captionsFill" } else { "captions" }, "Sous-titres (V)", &tracks, &p); }
+                    if tracks.iter().filter(|t| t.kind == "audio").count() > 1 { track_menu(ui, "audio", "waveform", "Piste audio (B)", &tracks, &p); }
+                    ui.add_space(6.0);
+                    let mut vol = pl.volume;
+                    if scrubber(ui, &mut vol, 130.0, 96.0).changed() { pl.set_volume(vol); }
+                    ui.add(icons::image(if pl.volume <= 0.0 { "speakerSlash" } else { "speaker" }, 15.0, theme::white(220)));
                 });
             });
         }
@@ -168,11 +170,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 thread_local! { static PICKS: std::cell::RefCell<Vec<(&'static str, Option<crate::vlc::Track>)>> = std::cell::RefCell::new(vec![]); }
 
 /// Les pistes audio ou de sous-titres, avec « Aucun » en tête pour les sous-titres.
-fn track_menu(ui: &mut egui::Ui, kind: &'static str, tip: &str, tracks: &[crate::vlc::Track], p: &crate::common::theme::Palette) {
+fn track_menu(ui: &mut egui::Ui, kind: &'static str, icon: &str, tip: &str, tracks: &[crate::vlc::Track], p: &crate::common::theme::Palette) {
     let list: Vec<&crate::vlc::Track> = tracks.iter().filter(|t| t.kind == kind).collect();
     if list.is_empty() && kind == "audio" { return; }
-    let icon = if kind == "audio" { "music" } else { "doc" };
-    ui.menu_image_button(icons::image(icon, 18.0, Color32::WHITE), |ui| {
+    let button = egui::Button::image(icons::image(icon, 19.0, Color32::WHITE)).frame(false).min_size(Vec2::splat(34.0));
+    egui::menu::menu_custom_button(ui, button, |ui| {
         ui.set_min_width(260.0);
         ui.label(RichText::new(if kind == "audio" { "Audio" } else { "Sous-titres" }).font(theme::bold(11.0)).color(p.muted));
         if kind == "sub" && ui.radio(!list.iter().any(|t| t.selected), "Aucun").clicked() {
@@ -186,6 +188,36 @@ fn track_menu(ui: &mut egui::Ui, kind: &'static str, tip: &str, tracks: &[crate:
             }
         }
     }).response.on_hover_text(tip.to_string());
+}
+
+/// Un bouton de la barre de lecture : un symbole blanc sans cadre, un disque discret au survol,
+/// et « 10 » au centre des flèches de saut, comme sur Mac.
+fn control(ui: &mut egui::Ui, icon: &str, size: f32, tip: &str, label: Option<&str>) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
+    if resp.hovered() { ui.painter().circle_filled(rect.center(), 18.0, theme::white(28)); }
+    icons::image(icon, size, Color32::WHITE).paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    if let Some(t) = label { ui.painter().text(rect.center() + Vec2::new(0.0, 1.0), Align2::CENTER_CENTER, t, theme::bold(8.0), Color32::WHITE); }
+    resp.on_hover_text(tip.to_string()).clicked()
+}
+
+/// Une barre fine à la Mac : rail blanc translucide, partie jouée en blanc, petite
+/// poignée blanche qui grossit au survol. Cliquer ou glisser change la valeur.
+fn scrubber(ui: &mut egui::Ui, value: &mut f64, max: f64, width: f32) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::click_and_drag());
+    let rail = Rect::from_center_size(rect.center(), Vec2::new(width - 12.0, 4.0));
+    if let Some(p) = resp.interact_pointer_pos() {
+        let f = ((p.x - rail.left()) / rail.width()).clamp(0.0, 1.0) as f64;
+        let v = f * max;
+        if (v - *value).abs() > f64::EPSILON { *value = v; resp.mark_changed(); }
+    }
+    let f = if max > 0.0 { (*value / max).clamp(0.0, 1.0) as f32 } else { 0.0 };
+    let x = rail.left() + rail.width() * f;
+    let painter = ui.painter();
+    painter.rect_filled(rail, 2, theme::white(70));
+    painter.rect_filled(Rect::from_min_max(rail.min, egui::pos2(x, rail.max.y)), 2, Color32::WHITE);
+    let r = if resp.hovered() || resp.dragged() { 7.0 } else { 5.5 };
+    painter.circle_filled(egui::pos2(x, rail.center().y), r, Color32::WHITE);
+    resp
 }
 
 /// Un voile dégradé derrière les commandes, pour qu'elles se lisent sur n'importe quelle image.

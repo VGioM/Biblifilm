@@ -56,7 +56,7 @@ pub fn side_row(ui: &mut Ui, p: &Palette, icon: &str, label: &str, count: Option
     if active {
         ui.painter().rect_filled(rect, 7, p.selection);
     } else if resp.hovered() {
-        ui.painter().rect_filled(rect, 7, Color32::from_white_alpha(12));
+        ui.painter().rect_filled(rect, 7, theme::white(12));
     }
     let ic = Rect::from_center_size(egui::pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0));
     icons::image(icon, 16.0, p.accent).paint_at(ui, ic);
@@ -105,7 +105,7 @@ pub fn placeholder(ui: &Ui, rect: Rect, radius: u8, seed: &str, icon: &str) {
     ui.painter().add(egui::Shape::mesh(mesh));
     let _ = radius;
     let ic = Rect::from_center_size(rect.center(), Vec2::splat((rect.width() * 0.18).clamp(18.0, 34.0)));
-    icons::image(icon, ic.width(), Color32::from_white_alpha(115)).paint_at(ui, ic);
+    icons::image(icon, ic.width(), theme::white(115)).paint_at(ui, ic);
 }
 
 pub enum Fit { Fill, Contain }
@@ -151,7 +151,7 @@ pub fn cover(ui: &Ui, images: &mut ImageCache, rect: Rect, source: Option<&Sourc
             placeholder(ui, rect, radius, seed, icon);
         }
     }
-    painter.rect_stroke(rect, radius, Stroke::new(0.5_f32, Color32::from_white_alpha(23)), egui::StrokeKind::Inside);
+    painter.rect_stroke(rect, radius, Stroke::new(0.5_f32, theme::white(23)), egui::StrokeKind::Inside);
 }
 
 /// Une ombre douce sous une vignette.
@@ -162,10 +162,10 @@ pub fn shadow(ui: &Ui, rect: Rect, radius: u8, strong: bool) {
 
 /// Une pastille sombre (« PS1 », « 3 disques »).
 pub fn badge(ui: &Ui, pos: egui::Pos2, anchor: Align2, text: &str) -> Rect {
-    let g = ui.painter().layout_no_wrap(text.to_string(), theme::bold(10.0), Color32::from_white_alpha(242));
+    let g = ui.painter().layout_no_wrap(text.to_string(), theme::bold(10.0), theme::white(242));
     let size = g.size() + Vec2::new(12.0, 5.0);
     let rect = anchor.anchor_size(pos, size);
-    ui.painter().rect(rect, 99, Color32::from_black_alpha(158), Stroke::new(0.5_f32, Color32::from_white_alpha(56)), egui::StrokeKind::Inside);
+    ui.painter().rect(rect, 99, Color32::from_black_alpha(158), Stroke::new(0.5_f32, theme::white(56)), egui::StrokeKind::Inside);
     ui.painter().galley(rect.min + Vec2::new(6.0, 2.5), g, Color32::WHITE);
     rect
 }
@@ -175,7 +175,7 @@ pub fn circle_button(ui: &mut Ui, center: egui::Pos2, icon: &str, id: egui::Id) 
     let rect = Rect::from_center_size(center, Vec2::splat(40.0));
     let resp = ui.interact(rect, id, Sense::click());
     let fill = if resp.hovered() { Color32::from_black_alpha(190) } else { Color32::from_black_alpha(140) };
-    ui.painter().circle(center, 20.0, fill, Stroke::new(1.2_f32, Color32::from_white_alpha(217)));
+    ui.painter().circle(center, 20.0, fill, Stroke::new(1.2_f32, theme::white(217)));
     let ic = Rect::from_center_size(center, Vec2::splat(16.0));
     icons::image(icon, 16.0, Color32::WHITE).paint_at(ui, ic);
     resp
@@ -186,7 +186,7 @@ pub fn chips(ui: &mut Ui, p: &Palette, items: &[String]) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
         for t in items {
-            egui::Frame::new().fill(Color32::from_white_alpha(26)).corner_radius(99).inner_margin(egui::Margin::symmetric(8, 3))
+            egui::Frame::new().fill(theme::white(26)).corner_radius(99).inner_margin(egui::Margin::symmetric(8, 3))
                 .show(ui, |ui| ui.label(RichText::new(t).size(11.0).color(p.muted)));
         }
     });
@@ -224,7 +224,7 @@ impl Toast {
 
 /// Un champ de recherche avec sa loupe et sa croix.
 pub fn search_field(ui: &mut Ui, p: &Palette, text: &mut String, hint: &str, width: f32, focus: bool) -> Response {
-    let frame = egui::Frame::new().fill(Color32::from_white_alpha(18)).corner_radius(8).stroke(Stroke::new(1.0_f32, p.hairline)).inner_margin(egui::Margin::symmetric(8, 4));
+    let frame = egui::Frame::new().fill(theme::white(18)).corner_radius(8).stroke(Stroke::new(1.0_f32, p.hairline)).inner_margin(egui::Margin::symmetric(8, 4));
     frame.show(ui, |ui| {
         ui.set_width(width);
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -249,7 +249,7 @@ pub fn check(ui: &mut Ui, p: &Palette, value: &mut bool, label: &str) -> Respons
         ui.painter().rect_filled(b, 4, p.accent);
         icons::image("check", 12.0, p.on_accent).paint_at(ui, Rect::from_center_size(b.center(), Vec2::splat(12.0)));
     } else {
-        ui.painter().rect(b, 4, Color32::from_white_alpha(if resp.hovered() { 30 } else { 14 }), Stroke::new(1.0_f32, p.hairline_strong), egui::StrokeKind::Inside);
+        ui.painter().rect(b, 4, theme::white(if resp.hovered() { 30 } else { 14 }), Stroke::new(1.0_f32, p.hairline_strong), egui::StrokeKind::Inside);
     }
     if !label.is_empty() { ui.painter().galley(egui::pos2(b.right() + 8.0, rect.center().y - g.size().y / 2.0), g, p.text); }
     resp
@@ -266,7 +266,7 @@ pub fn check_help(ui: &mut Ui, p: &Palette, value: &mut bool, label: &str, help:
 
 /// Un groupe de réglages, encadré.
 pub fn group<R>(ui: &mut Ui, p: &Palette, title: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::new().fill(Color32::from_white_alpha(10)).stroke(Stroke::new(1.0_f32, p.hairline)).corner_radius(10).inner_margin(egui::Margin::symmetric(14, 12))
+    egui::Frame::new().fill(theme::white(10)).stroke(Stroke::new(1.0_f32, p.hairline)).corner_radius(10).inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             if !title.is_empty() { ui.label(RichText::new(title).font(theme::bold(12.5))); }

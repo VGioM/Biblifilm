@@ -342,15 +342,15 @@ fn card_ui(app: &mut App, ui: &mut Ui, e: &Entry, rect: Rect, cover_h: f32, acts
     let hovered = resp.hovered() || resp.context_menu_opened();
     let selected = matches!(e, Entry::Single(i) if app.selected.as_deref() == Some(app.items[*i].id.as_str()));
     let painter = ui.painter_at(rect.expand(12.0));
-    if selected { painter.rect_filled(rect.expand(7.0), 10, Color32::from_white_alpha(26)); }
+    if selected { painter.rect_filled(rect.expand(7.0), 10, theme::white(26)); }
     let kind = e.kind(&app.items);
     let aspect_h = if kind == Kind::Audio { rect.width() } else { cover_h };
     let top = rect.top() + 10.0;
     let cover = Rect::from_min_size(egui::pos2(rect.left(), top), Vec2::new(rect.width(), aspect_h));
     if season {
         // Des feuillets qui dépassent derrière l'affiche : « plusieurs épisodes ».
-        painter.rect_filled(Rect::from_min_max(egui::pos2(cover.left() + 15.0, top - 9.0), egui::pos2(cover.right() - 15.0, top + 20.0)), 8, Color32::from_white_alpha(33));
-        painter.rect_filled(Rect::from_min_max(egui::pos2(cover.left() + 7.5, top - 4.5), egui::pos2(cover.right() - 7.5, top + 20.0)), 8, Color32::from_white_alpha(51));
+        painter.rect_filled(Rect::from_min_max(egui::pos2(cover.left() + 15.0, top - 9.0), egui::pos2(cover.right() - 15.0, top + 20.0)), 8, theme::white(33));
+        painter.rect_filled(Rect::from_min_max(egui::pos2(cover.left() + 7.5, top - 4.5), egui::pos2(cover.right() - 7.5, top + 20.0)), 8, theme::white(51));
     }
     ui::shadow(ui, cover, 8, hovered);
     let title = e.title(&app.items);
@@ -448,7 +448,7 @@ fn season_page(app: &mut App, ui: &mut Ui, s: &Season, acts: &mut Vec<Action>) {
                 episode_row(app, ui, i, k, acts);
                 if k + 1 < s.episodes.len() {
                     let r = ui.available_rect_before_wrap();
-                    ui.painter().hline((r.left() + 44.0)..=r.right(), r.top(), Stroke::new(1.0_f32, Color32::from_white_alpha(18)));
+                    ui.painter().hline((r.left() + 44.0)..=r.right(), r.top(), Stroke::new(1.0_f32, theme::white(18)));
                 }
             }
         });
@@ -462,7 +462,7 @@ fn episode_row(app: &App, ui: &mut Ui, i: usize, k: usize, acts: &mut Vec<Action
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 46.0), Sense::click());
     let selected = app.selected.as_deref() == Some(it.id.as_str());
     let hovered = resp.hovered();
-    if selected { ui.painter().rect_filled(rect, 7, Color32::from_white_alpha(26)); } else if hovered { ui.painter().rect_filled(rect, 7, Color32::from_white_alpha(13)); }
+    if selected { ui.painter().rect_filled(rect, 7, theme::white(26)); } else if hovered { ui.painter().rect_filled(rect, 7, theme::white(13)); }
     let num = Rect::from_min_size(rect.min + Vec2::new(10.0, 0.0), Vec2::new(32.0, rect.height()));
     let seen = w.watched(i);
     let mut play_clicked = false;
@@ -484,7 +484,7 @@ fn episode_row(app: &App, ui: &mut Ui, i: usize, k: usize, acts: &mut Vec<Action
     let line2 = Rect::from_min_size(egui::pos2(tx, rect.top() + 27.0), Vec2::new(tw, 13.0));
     if let (Some(_), Some(r)) = (w.resume(i), w.rec(i)) {
         let bar = Rect::from_min_size(egui::pos2(tx, line2.center().y - 1.5), Vec2::new(90.0, 3.0));
-        ui.painter().rect_filled(bar, 2, Color32::from_white_alpha(36));
+        ui.painter().rect_filled(bar, 2, theme::white(36));
         ui.painter().rect_filled(Rect::from_min_size(bar.min, Vec2::new((90.0 * r.progress() as f32).max(3.0), 3.0)), 2, p.accent);
         let left = (r.duration - r.position).max(0.0) / 60.0;
         let rem = if left >= 60.0 { format!("{} h {} min", (left / 60.0) as i64, (left % 60.0) as i64) } else { format!("{} min", left as i64) };
@@ -551,7 +551,7 @@ fn inspector(app: &mut App, ui: &mut Ui, i: usize, acts: &mut Vec<Action>) {
         ui::info_row(ui, &p, "Chemin", &it.path.to_string_lossy());
         if m.is_none() {
             ui.add_space(8.0);
-            egui::Frame::new().fill(Color32::from_white_alpha(13)).corner_radius(8).inner_margin(10).show(ui, |ui| {
+            egui::Frame::new().fill(theme::white(13)).corner_radius(8).inner_margin(10).show(ui, |ui| {
                 ui.label(RichText::new("Titre non identifié").font(theme::bold(12.0)));
                 ui.label(RichText::new(if app.tmdb_key().is_some() { "Aucune correspondance trouvée. Essayez « Corriger » pour choisir le bon titre." } else { "Ajoutez une clé TMDB dans les réglages pour de bien meilleurs résultats." }).size(11.5).color(p.muted));
             });
@@ -578,7 +578,7 @@ fn correction_sheet(app: &mut App, ctx: &egui::Context, acts: &mut Vec<Action>) 
             if ui::primary(ui, &p, "Rechercher").clicked() { search = true; }
         });
         let mut picked = None;
-        egui::Frame::new().fill(Color32::from_white_alpha(13)).corner_radius(8).show(ui, |ui| {
+        egui::Frame::new().fill(theme::white(13)).corner_radius(8).show(ui, |ui| {
             ui.set_min_height(110.0);
             ui.set_width(ui.available_width());
             if !has_key { ui.centered_and_justified(|ui| ui.label(RichText::new("Ajoutez une clé TMDB dans les réglages pour choisir parmi les titres.").color(p.muted))); }
@@ -588,7 +588,7 @@ fn correction_sheet(app: &mut App, ctx: &egui::Context, acts: &mut Vec<Action>) 
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     for (k, cand) in list.iter().enumerate() {
                         let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 78.0), Sense::click());
-                        if resp.hovered() { ui.painter().rect_filled(rect, 6, Color32::from_white_alpha(15)); }
+                        if resp.hovered() { ui.painter().rect_filled(rect, 6, theme::white(15)); }
                         let cov = Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(44.0, 62.0));
                         let src = cand.poster_url.clone().map(Source::Url);
                         ui::cover(ui, &mut app.images, cov, src.as_ref(), &cand.title, if cand.is_series { "tv" } else { "film" }, 4, Size::Thumb, false);
@@ -656,8 +656,11 @@ fn general(app: &mut App, ui: &mut Ui, acts: &mut Vec<Action>) {
     ui::group(ui, &p, "Dossier", |ui| {
         ui.horizontal(|ui| {
             let path = app.library_path().map(|p| p.display().to_string()).unwrap_or("Aucun".into());
-            ui.add(egui::Label::new(path).truncate());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| if ui.button("Choisir…").clicked() { acts.push(Action::ChooseFolder); });
+            // Le bouton d'abord, le chemin ensuite dans la place qui reste (raccourci, complet au survol).
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button("Choisir…").clicked() { acts.push(Action::ChooseFolder); }
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| { ui.add(egui::Label::new(&path).truncate()).on_hover_text(&path); });
+            });
         });
         toggle(app, ui, "includeAudio", "Inclure les fichiers audio", "", acts);
         toggle(app, ui, "skipSmallFiles", "Ignorer les fichiers de moins de 20 Mo", "Évite d'importer les extraits, bandes-annonces et échantillons.", acts);

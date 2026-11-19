@@ -63,9 +63,19 @@ pub fn svg(name: &str) -> String {
         "flame" => r##"<path d="M12 21c-3.9 0-6.5-2.6-6.5-6 0-3.5 3-5.5 3.5-9 2.5 1.5 3 3.5 3 5 1-.5 1.8-1.7 2-3 2.2 1.8 4.5 4.3 4.5 7 0 3.4-2.6 6-6.5 6z"/>"##,
         "pin" => r##"<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>"##,
         "volume" => r##"<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>"##,
+        "gobackward" => r##"<path d="M12 4.5A7.5 7.5 0 1 1 4.5 12"/><path d="M14.5 2 12 4.5 14.5 7"/>"##,
+        "goforward" => r##"<path d="M12 4.5A7.5 7.5 0 1 0 19.5 12"/><path d="M9.5 2 12 4.5 9.5 7"/>"##,
+        "forwardEnd" => r##"<path d="M5 5.5v13l10-6.5z" fill="currentColor"/><rect x="16.5" y="5.5" width="2.5" height="13" rx="1" fill="currentColor" stroke="none"/>"##,
+        "speaker" => r##"<path d="M3.5 9.5h3.5L11.5 5.5v13L7 14.5H3.5z" fill="currentColor"/><path d="M15 9a4 4 0 0 1 0 6M17.8 6.3a8 8 0 0 1 0 11.4"/>"##,
+        "speakerSlash" => r##"<path d="M3.5 9.5h3.5L11.5 5.5v13L7 14.5H3.5z" fill="currentColor"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>"##,
+        "waveform" => r##"<path d="M3.5 10.5v3M7 7.5v9M10.5 4v16M14 8v8M17.5 5.5v13M21 10v4"/>"##,
+        "captions" => r##"<path d="M4.5 4.5h15a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H11l-4.5 3.5V17h-2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z"/><path d="M7 9.5h3.5M13 9.5h4M7 12.5h6M15.5 12.5H17"/>"##,
+        "captionsFill" => r##"<path d="M4.5 4.5h15a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H11l-4.5 3.5V17h-2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z" fill="currentColor"/><path d="M7 9.5h3.5M13 9.5h4M7 12.5h6M15.5 12.5H17" stroke="#000000"/>"##,
+        "expand" => r##"<path d="M14 4h6v6M20 4l-6.5 6.5M10 20H4v-6M4 20l6.5-6.5"/>"##,
+        "shrink" => r##"<path d="M19.5 10.5h-6v-6M13.5 10.5 20 4M4.5 13.5h6v6M10.5 13.5 4 20"/>"##,
         _ => r##"<circle cx="12" cy="12" r="9"/>"##,
     };
-    format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{}</svg>"##, body.replace("currentColor", "#ffffff"))
+    format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>"##, body.replace("currentColor", "#ffffff").replace("stroke=\"#000000\"", "stroke=\"#000000\" stroke-width=\"1.8\""))
 }
 
 /// L'icône `name`, de `size` points, teintée de `color`.

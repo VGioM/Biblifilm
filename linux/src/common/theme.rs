@@ -121,13 +121,13 @@ pub fn install(ctx: &egui::Context, p: &Palette) {
     for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
         w.corner_radius = 7.into();
     }
-    v.widgets.inactive.weak_bg_fill = Color32::from_white_alpha(18);
-    v.widgets.inactive.bg_fill = Color32::from_white_alpha(18);
+    v.widgets.inactive.weak_bg_fill = white(18);
+    v.widgets.inactive.bg_fill = white(18);
     v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.hairline_strong);
-    v.widgets.hovered.weak_bg_fill = Color32::from_white_alpha(30);
-    v.widgets.hovered.bg_fill = Color32::from_white_alpha(30);
+    v.widgets.hovered.weak_bg_fill = white(30);
+    v.widgets.hovered.bg_fill = white(30);
     v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.hairline_strong);
-    v.widgets.active.weak_bg_fill = Color32::from_white_alpha(40);
+    v.widgets.active.weak_bg_fill = white(40);
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.hairline);
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text);
     ctx.set_visuals(v);
@@ -144,6 +144,10 @@ pub fn install(ctx: &egui::Context, p: &Palette) {
         s.text_styles.insert(TextStyle::Heading, FontId::new(17.0, FontFamily::Name("bold".into())));
     });
 }
+
+/// Du blanc à `a`/255 d'opacité, telle qu'on la voit. `Color32::from_white_alpha`
+/// l'entend en lumière linéaire : 10 y donne un voile de 22 %, bien trop clair.
+pub const fn white(a: u8) -> Color32 { Color32::from_rgba_premultiplied(a, a, a, a) }
 
 pub fn bold(size: f32) -> egui::FontId { egui::FontId::new(size, FontFamily::Name("bold".into())) }
 pub fn regular(size: f32) -> egui::FontId { egui::FontId::proportional(size) }

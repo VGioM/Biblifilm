@@ -525,7 +525,8 @@ impl App {
 
 impl App {
     /// Tests de bout en bout seulement : `BIBLIFILM_TEST="play:<morceau du nom>"`,
-    /// `"season:<morceau>"` ou `"select:<morceau>"`, une fois l'analyse finie.
+    /// `"paused:…"`, `"season:<morceau>"`, `"select:<morceau>"`, `"folder:…"` (le choix de
+    /// dossier) ou `"settings:…"` (`settings:lecture`, `settings:meta`), une fois l'analyse finie.
     fn run_test_script(&mut self, ctx: &egui::Context) {
         if self.test_done || self.scanning || self.items.is_empty() { return; }
         let Ok(script) = std::env::var("BIBLIFILM_TEST") else { self.test_done = true; return };
@@ -536,6 +537,8 @@ impl App {
         match verb {
             "play" => self.play(ctx, &id, false, None),
             "paused" => { self.play(ctx, &id, false, None); if let Some(s) = &self.session { s.player.set("pause", "yes"); } }
+            "folder" => self.choose_folder(),
+            "settings" => { self.selected = Some(id); self.settings_open = Some(match arg { _ if script.contains("lecture") => SettingsTab::Playback, _ if script.contains("meta") => SettingsTab::Metadata, _ => SettingsTab::General }); }
             "season" => { if let Some(s) = model::season_of(&self.items, i) { self.selected = Some(id); self.opened_season = Some(s.id); } }
             _ => self.selected = Some(id),
         }

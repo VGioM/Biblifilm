@@ -20,7 +20,7 @@ fancy-regex = "0.14"
 unicode-normalization = "0.1"
 notify = "8"
 sha2 = "0.10"
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 trash = "5"
 dirs = "6"
