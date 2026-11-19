@@ -5,6 +5,9 @@ online (full title, episode name, synopsis, cover art) and plays it in VLC on cl
 
 Styled after Music.app in dark mode.
 
+<p align="center"><img src="docs/capture.png" width="760" alt="Bibliothèque de Biblifilm"></p>
+<p align="center"><sub>Bibliothèque de démonstration : films, séries et affiches fictifs.</sub></p>
+
 ## Télécharger
 
 **[⬇︎ Dernière version (macOS 14+, Apple Silicon)](https://github.com/VGioM/Biblifilm/releases/latest)** — décompressez, glissez Biblifilm.app dans Applications. Au premier lancement, autorisez-la dans Réglages Système → Confidentialité et sécurité → « Ouvrir quand même » (l'app n'est pas notarisée par Apple). Ensuite, l'app vérifie elle-même au lancement s'il existe une nouvelle version et propose de l'installer (menu de l'app → « Rechercher les mises à jour… »).
