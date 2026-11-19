@@ -1,16 +1,15 @@
 //! Biblifilm pour Linux : analyse un dossier, identifie chaque fichier en ligne
-//! (titre complet, épisode, synopsis, affiche) et le lit dans la fenêtre avec
-//! libmpv, en suivant la reprise de lecture et les épisodes vus.
+//! (titre complet, épisode, synopsis, affiche) et le lit dans VLC, en suivant
+//! la reprise de lecture et les épisodes vus.
 
 mod app;
 mod common;
 mod library;
 mod metadata;
 mod model;
-mod mpv;
 mod parser;
-mod player_ui;
 mod views;
+mod vlc;
 
 fn main() -> eframe::Result {
     let icon = image::load_from_memory(include_bytes!("../resources/icon.png")).ok().map(|i| {

@@ -1,6 +1,5 @@
 //! L'état de Biblifilm et ce qui tourne en fond : analyse du dossier,
-//! identification en ligne, lecture. L'affichage est dans `views.rs` et
-//! `player_ui.rs`.
+//! identification en ligne, lecture dans VLC. L'affichage est dans `views.rs`.
 
 use crate::common::images::ImageCache;
 use crate::common::selfupdate::SelfUpdate;
@@ -11,7 +10,7 @@ use crate::common::ui::Toast;
 use crate::library::{self, ScanOptions, WatchStore};
 use crate::metadata::{Candidate, Service, Tmdb};
 use crate::model::{self, Entry, Item, Metadata, Watch};
-use crate::mpv;
+use crate::vlc;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -28,20 +27,25 @@ pub enum Bg {
     KeyTest(Option<String>),
 }
 
-/// Une séance de lecture dans la fenêtre.
+/// Une séance de lecture dans VLC, suivie pour la reprise et les épisodes vus.
 pub struct Session {
-    pub player: mpv::Player,
+    pub player: vlc::Player,
     pub queue: Vec<String>,
     pub titles: Vec<(String, String)>,
+    /// Le fichier de la file en cours, sa position et sa durée (s).
+    pub index: usize,
+    pub position: f64,
+    pub duration: f64,
+    pub playing: bool,
+    /// Secondes vraiment jouées de ce fichier : une ouverture éclair n'efface pas la reprise.
+    pub played: f64,
     pub last_saved: f64,
     pub last_save_at: Instant,
-    pub last_activity: Instant,
-    pub started: Instant,
-    pub osd: Option<(String, Instant)>,
-    pub error: Option<String>,
-    pub closing: bool,
-    pub applying_tracks: bool,
 }
+
+/// Une lecture demandée pendant que VLC s'installe.
+#[derive(Clone)]
+pub struct PendingPlay { pub id: String, pub from_start: bool, pub followers: Option<Vec<usize>> }
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum SettingsTab { General, Playback, Metadata }
@@ -85,8 +89,8 @@ pub struct App {
     last_key: String,
 
     pub session: Option<Session>,
-    pub inhibit: Option<sys::Inhibit>,
-    pub mpv_error: Option<String>,
+    pub vlc: vlc::Manager,
+    pub pending_play: Option<PendingPlay>,
 
     pub error: Option<String>,
     pub toast: Toast,
@@ -96,7 +100,6 @@ pub struct App {
     pub restore_msg: Option<String>,
     pub pending_folder: Option<mpsc::Receiver<Vec<PathBuf>>>,
     pub update: SelfUpdate,
-    pub fullscreen: bool,
     pub test: crate::common::testhook::TestHook,
     test_done: bool,
 }
@@ -111,9 +114,10 @@ impl App {
         let settings = Settings::new(dir.join("settings.json"), json!({
             "tmdbAPIKey": "", "libraryPath": null, "preferredLanguage": "fr-FR", "includeAudio": true, "skipSmallFiles": true,
             "autoFetchMetadata": true, "watchFolder": true, "lastSelection": "all", "sortOrder": "title", "inspectorVisible": true,
-            "seriesExpanded": true, "trackPrefs": {}, "volume": 100.0
+            "seriesExpanded": true, "vlcFullscreen": true
         }));
         let (tx, rx) = mpsc::channel();
+        let vlc = vlc::Manager::new(&dir, &cc.egui_ctx);
         let last_key = settings.string("tmdbAPIKey").trim().to_string();
         let mut app = App {
             p, images: ImageCache::new(&cc.egui_ctx, cache.clone(), 6), meta: Arc::new(Service::new(dir.join("metadata-cache.json"))),
@@ -121,9 +125,9 @@ impl App {
             search: String::new(), focus_search: false, opened_season: None, selected: None, banner_dismissed: false,
             scanning: false, scan_progress: Arc::default(), fetching: false, fetch_total: 0, fetch_done: 0, run: Arc::default(), scan_run: 0,
             tx, rx, watcher: None, changed: Arc::default(), changed_at: None, key_changed_at: None, last_key,
-            session: None, inhibit: None, mpv_error: { mpv::preload(); None },
+            session: None, vlc, pending_play: None,
             error: None, toast: Toast::default(), settings_open: None, correction: None, key_status: None, restore_msg: None,
-            pending_folder: None, update: SelfUpdate::new(REPO, "Biblifilm"), fullscreen: false,
+            pending_folder: None, update: SelfUpdate::new(REPO, "Biblifilm"),
             test: Default::default(), test_done: false,
         };
         app.rescan(&cc.egui_ctx, false);
@@ -369,10 +373,19 @@ impl App {
 
     // ── Lecture ───────────────────────────────────────────────────────────
 
-    /// Lit un fichier ; un épisode met en file la suite de sa saison.
+    /// Lit un fichier dans VLC ; un épisode met en file la suite de sa saison.
+    /// Si VLC manque, il est installé d'abord, puis la lecture part toute seule.
     pub fn play(&mut self, ctx: &egui::Context, id: &str, from_start: bool, followers: Option<Vec<usize>>) {
         let Some(i) = self.index_of(id) else { return };
         if !self.items[i].path.exists() { self.error = Some(format!("Le fichier est introuvable :\n{}", self.items[i].path.display())); return; }
+        let Some(kind) = self.vlc.kind() else {
+            self.pending_play = Some(PendingPlay { id: id.to_string(), from_start, followers });
+            match self.vlc.state() {
+                vlc::State::Missing | vlc::State::Failed(_) => { self.vlc.install(ctx, |_| {}); self.toast.show("Installation de VLC… la lecture démarrera ensuite"); }
+                _ => self.toast.show("VLC se prépare…"),
+            }
+            return;
+        };
         let rest = followers.unwrap_or_else(|| model::season_of(&self.items, i).map(|s| {
             let k = s.episodes.iter().position(|&x| x == i).unwrap_or(0);
             s.episodes[k + 1..].to_vec()
@@ -381,16 +394,27 @@ impl App {
         let queue: Vec<usize> = std::iter::once(i).chain(rest).collect();
         let files: Vec<String> = queue.iter().map(|&k| self.items[k].path.to_string_lossy().to_string()).collect();
         self.stop_playback();
-        match mpv::Player::new(&files, start, ctx, self.settings.f64("volume").max(0.0), "fr,fre,fra,en,eng") {
+        match vlc::Player::spawn(&kind, &files, start, self.settings.bool("vlcFullscreen"), ctx) {
             Ok(player) => {
                 self.session = Some(Session {
                     player, queue: queue.iter().map(|&k| self.items[k].id.clone()).collect(),
                     titles: queue.iter().map(|&k| (self.items[k].player_title(), self.items[k].player_subtitle())).collect(),
-                    last_saved: -1.0, last_save_at: Instant::now(), last_activity: Instant::now(), started: Instant::now(),
-                    osd: None, error: None, closing: false, applying_tracks: false,
+                    index: 0, position: start, duration: 0.0, playing: false, played: 0.0,
+                    last_saved: -1.0, last_save_at: Instant::now(),
                 });
             }
-            Err(e) => { self.mpv_error = Some(e.clone()); self.error = Some(format!("Le lecteur n'a pas pu démarrer : {e}")); }
+            Err(e) => self.error = Some(format!("VLC n'a pas pu démarrer : {e}")),
+        }
+    }
+
+    /// Une lecture en attente de VLC part dès qu'il est prêt.
+    fn tick_vlc(&mut self, ctx: &egui::Context) {
+        let Some(p) = self.pending_play.clone() else { return };
+        match self.vlc.state() {
+            vlc::State::Ready { .. } => { self.pending_play = None; self.play(ctx, &p.id, p.from_start, p.followers); }
+            vlc::State::Failed(e) => { self.pending_play = None; self.error = Some(format!("VLC n'a pas pu être installé : {e}")); }
+            vlc::State::Missing => self.vlc.install(ctx, |_| {}),
+            _ => {}
         }
     }
 
@@ -411,115 +435,63 @@ impl App {
     /// Écrit la position, seulement si elle a bougé et après 3 s vraiment jouées.
     pub fn save_position(&mut self, routine: bool) {
         let Some(s) = &mut self.session else { return };
-        let pl = &s.player;
-        if pl.played <= 3.0 || pl.duration <= 0.0 { return; }
-        let pos = (pl.position * 10.0).round() / 10.0;
+        if s.played <= 3.0 || s.duration <= 0.0 { return; }
+        let pos = (s.position * 10.0).round() / 10.0;
         if routine && (pos == s.last_saved || s.last_save_at.elapsed().as_secs_f32() < 2.0) { return; }
         s.last_saved = pos;
         s.last_save_at = Instant::now();
-        let id = s.queue[pl.index.min(s.queue.len() - 1)].clone();
-        let (p, d) = (pl.position, pl.duration);
+        let id = s.queue[s.index.min(s.queue.len() - 1)].clone();
+        let (p, d) = (s.position, s.duration);
         self.watch.update(&id, p, d);
     }
 
+    /// Ferme la fenêtre VLC de la lecture en cours.
     pub fn stop_playback(&mut self) {
         self.save_position(false);
-        if let Some(s) = &mut self.session { s.player.close(); s.closing = true; }
-        self.inhibit = None;
+        if let Some(s) = self.session.take() { s.player.close(); }
         self.watch.save_now();
     }
 
-    /// Les pistes mémorisées (par libellé : mpv renumérote à chaque fichier), réappliquées.
-    pub fn apply_track_prefs(&mut self) {
-        let prefs = self.settings.get("trackPrefs");
+    /// Le suivi de la lecture dans VLC.
+    pub fn tick_player(&mut self) {
         let Some(s) = &mut self.session else { return };
-        s.applying_tracks = true;
-        for kind in ["audio", "sub"] {
-            let want = &prefs[kind];
-            if want.is_null() { continue; }
-            if want.as_str() == Some("none") { if kind == "sub" { s.player.select_track("sub", None); } continue; }
-            let (t, l) = (want["title"].as_str().unwrap_or(""), want["lang"].as_str().unwrap_or(""));
-            let list: Vec<&mpv::Track> = s.player.tracks.iter().filter(|x| x.kind == kind).collect();
-            let hit = list.iter().find(|x| x.title == t && x.lang == l)
-                .or_else(|| if t.is_empty() { None } else { list.iter().find(|x| x.title == t) })
-                .or_else(|| if l.is_empty() { None } else { list.iter().find(|x| x.lang == l) });
-            if let Some(h) = hit { s.player.select_track(kind, Some(h.id)); }
-        }
-        s.player.refresh_tracks();
-        s.applying_tracks = false;
-    }
-
-    /// Un choix de piste fait par l'utilisateur, retenu pour la suite.
-    pub fn choose_track(&mut self, kind: &str, track: Option<mpv::Track>) {
-        let Some(s) = &mut self.session else { return };
-        s.player.select_track(kind, track.as_ref().map(|t| t.id));
-        s.player.refresh_tracks();
-        let mut prefs = self.settings.get("trackPrefs");
-        if !prefs.is_object() { prefs = json!({}); }
-        prefs[kind] = match &track { Some(t) => json!({ "title": t.title, "lang": t.lang }), None => json!("none") };
-        self.settings.set("trackPrefs", prefs);
-        let label = track.map(|t| t.label()).unwrap_or_else(|| "aucun".into());
-        if let Some(s) = &mut self.session { s.osd = Some((format!("{} : {label}", if kind == "audio" { "Audio" } else { "Sous-titres" }), Instant::now())); }
-    }
-
-    /// Le suivi de la séance, à chaque image.
-    pub fn tick_player(&mut self, ctx: &egui::Context) {
-        let Some(s) = &mut self.session else { return };
-        if s.closing {
-            if s.player.can_drop() { self.session = None; ctx.request_repaint(); } else { ctx.request_repaint(); }
-            return;
-        }
-        let events = s.player.poll();
-        for ev in events {
+        for ev in s.player.poll() {
+            let Some(s) = &mut self.session else { return };
             match ev {
-                mpv::Event::Loaded(_) => { self.apply_track_prefs(); }
-                mpv::Event::Eof(k) => {
-                    // Fin réelle du fichier : l'épisode est vu.
-                    if let Some(s) = &self.session {
-                        if s.player.played > 3.0 && s.player.duration > 0.0 {
-                            let (id, d) = (s.queue[k.min(s.queue.len() - 1)].clone(), s.player.duration);
-                            self.watch.update(&id, d, d);
-                        }
-                    }
+                vlc::Event::Status { index, position, duration, playing } => {
+                    if index != s.index { s.index = index; s.played = 0.0; s.last_saved = -1.0; }
+                    if playing && duration > 0.0 { s.played += 1.0; }
+                    s.position = position;
+                    if duration > 0.0 { s.duration = duration; }
+                    s.playing = playing;
+                    if !playing { self.save_position(false); } else { self.save_position(true); }
                 }
-                mpv::Event::Error(_, e) => { if let Some(s) = &mut self.session { s.error = Some(e); } }
-                mpv::Event::Finished => { self.stop_playback(); return; }
+                // Fin réelle du fichier : l'épisode est vu.
+                vlc::Event::Ended { index, duration } => {
+                    let id = s.queue[index.min(s.queue.len() - 1)].clone();
+                    self.watch.update(&id, duration, duration);
+                }
+                vlc::Event::Exited => {
+                    self.save_position(false);
+                    self.session = None;
+                    self.watch.save_now();
+                    return;
+                }
             }
         }
-        let Some(s) = &mut self.session else { return };
-        // Un fichier qui ne démarre pas au bout de 15 s : une erreur et une porte de sortie,
-        // plutôt qu'une « fin » instantanée qui marquerait toute la saison comme vue.
-        if !s.player.loaded && s.player.duration <= 0.0 && s.started.elapsed().as_secs() >= 15 && s.error.is_none() {
-            s.error = Some("le fichier ne démarre pas".into());
-        }
-        let playing = !s.player.paused && s.player.loaded;
-        // L'écran reste allumé tant qu'un film est vraiment en lecture, pas en pause.
-        if playing && self.inhibit.is_none() { self.inhibit = Some(sys::Inhibit::new("Biblifilm", "Lecture d'un film")); }
-        if !playing && self.inhibit.is_some() { self.inhibit = None; self.save_position(false); }
-        self.save_position(true);
     }
 
+    /// Le titre en cours de lecture dans VLC, pour la barre « En lecture ».
+    pub fn now_playing(&self) -> Option<(String, String, f64, f64, bool)> {
+        let s = self.session.as_ref()?;
+        let (t, sub) = s.titles.get(s.index).cloned().unwrap_or_default();
+        Some((t, sub, s.position, s.duration, s.playing))
+    }
+
+    /// Ouvre le fichier avec l'application choisie par le bureau pour ce type de fichier.
     pub fn open_externally(&self, id: &str) {
         let Some(i) = self.index_of(id) else { return };
-        let path = self.items[i].path.clone();
-        let flatpak_vlc = std::path::Path::new("/var/lib/flatpak/app/org.videolan.VLC").exists()
-            || dirs::data_dir().map(|d| d.join("flatpak/app/org.videolan.VLC").exists()).unwrap_or(false);
-        let mut c;
-        if sys::which("vlc").is_some() {
-            c = sys::clean_command("vlc");
-        } else if flatpak_vlc {
-            c = sys::clean_command("flatpak");
-            c.args(["run", &format!("--filesystem={}:ro", path.parent().unwrap_or(&path).display()), "org.videolan.VLC"]);
-        } else {
-            c = sys::clean_command("xdg-open");
-        }
-        c.arg(&path);
-        let _ = sys::spawn_detached(c);
-    }
-
-    pub fn has_vlc(&self) -> bool {
-        sys::which("vlc").is_some() || std::path::Path::new("/var/lib/flatpak/app/org.videolan.VLC").exists()
-            || dirs::data_dir().map(|d| d.join("flatpak/app/org.videolan.VLC").exists()).unwrap_or(false)
+        sys::open_path(&self.items[i].path);
     }
 }
 
@@ -535,7 +507,6 @@ impl App {
         let id = self.items[i].id.clone();
         match verb {
             "play" => self.play(ctx, &id, false, None),
-            "paused" => { self.play(ctx, &id, false, None); if let Some(s) = &self.session { s.player.set("pause", "yes"); } }
             "season" => { if let Some(s) = model::season_of(&self.items, i) { self.selected = Some(id); self.opened_season = Some(s.id); } }
             _ => self.selected = Some(id),
         }
@@ -546,12 +517,9 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.images.begin_frame(ctx);
         self.pump(ctx);
-        self.tick_player(ctx);
-        if self.session.as_ref().map(|s| !s.closing).unwrap_or(false) {
-            crate::player_ui::show(self, ctx);
-        } else {
-            crate::views::show(self, ctx);
-        }
+        self.tick_vlc(ctx);
+        self.tick_player();
+        crate::views::show(self, ctx);
         self.toast.ui(ctx, &self.p);
         self.run_test_script(ctx);
         self.test.ui(ctx);

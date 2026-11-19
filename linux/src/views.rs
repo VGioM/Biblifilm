@@ -34,6 +34,9 @@ pub enum Action {
     Setting(&'static str, serde_json::Value),
     ApplyCandidate(String, Candidate, String),
     CheckUpdates,
+    StopPlayback,
+    InstallVlc,
+    UpdateVlc,
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -53,6 +56,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .frame(egui::Frame::new().fill(p.toolbar).inner_margin(egui::Margin::symmetric(12, 8)).stroke(Stroke::new(1.0_f32, p.hairline)))
         .show(ctx, |ui| toolbar(app, ui, &entries, &mut acts));
 
+    now_playing(app, ctx, &mut acts);
     banner(app, ctx, &mut acts);
 
     let selected = app.selected.clone().and_then(|id| app.index_of(&id));
@@ -111,6 +115,9 @@ fn apply(app: &mut App, ctx: &egui::Context, acts: Vec<Action>) {
                 app.play_all(ctx, ids);
             }
             Action::External(id) => app.open_externally(&id),
+            Action::StopPlayback => app.stop_playback(),
+            Action::InstallVlc => app.vlc.install(ctx, |_| {}),
+            Action::UpdateVlc => app.vlc.update_if_due(ctx, true),
             Action::SetWatched(ids, w) => app.watch.set_watched(&ids, w),
             Action::Refetch(id, o) => app.refetch(ctx, &id, o),
             Action::RefetchMany(ids) => for id in ids { app.refetch(ctx, &id, None) },
@@ -247,6 +254,37 @@ fn toolbar(app: &mut App, ui: &mut Ui, entries: &[Entry], acts: &mut Vec<Action>
     });
 }
 
+/// La barre « En lecture dans VLC » (ou « Installation de VLC… ») sous la barre d'outils.
+fn now_playing(app: &mut App, ctx: &egui::Context, acts: &mut Vec<Action>) {
+    let p = app.p;
+    let installing = app.pending_play.is_some() && matches!(app.vlc.state(), crate::vlc::State::Installing | crate::vlc::State::Checking);
+    let playing = app.now_playing();
+    if playing.is_none() && !installing { return; }
+    egui::TopBottomPanel::top("now_playing").frame(egui::Frame::new().fill(Color32::from_rgb(0x2c, 0x2c, 0x30)).inner_margin(egui::Margin::symmetric(16, 8)).stroke(Stroke::new(1.0_f32, p.hairline))).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            match &playing {
+                Some((title, sub, pos, dur, on)) => {
+                    ui.add(icons::image(if *on { "play" } else { "pause" }, 14.0, p.accent));
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        ui.label(RichText::new(format!("En lecture dans VLC : {title}")).font(theme::bold(12.5)));
+                        let time = if *dur > 0.0 { format!("{} / {}", model::format_time(*pos), model::format_time(*dur)) } else { "Ouverture…".into() };
+                        let line = if sub.is_empty() { time } else { format!("{sub} · {time}") };
+                        ui.label(RichText::new(line).size(11.5).color(p.muted));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Fermer VLC").clicked() { acts.push(Action::StopPlayback); }
+                    });
+                }
+                None => {
+                    ui::spinner(ui, 14.0);
+                    ui.label(RichText::new("Installation de VLC (environ 60 Mo)… la lecture démarrera ensuite").font(theme::bold(12.5)));
+                }
+            }
+        });
+    });
+}
+
 fn banner(app: &mut App, ctx: &egui::Context, acts: &mut Vec<Action>) {
     // Sans clé TMDB, les films ne peuvent pas être identifiés : le dire franchement.
     let unmatched = app.items.iter().filter(|i| i.matched().is_none()).count();
@@ -294,7 +332,7 @@ fn item_menu(app: &App, ui: &mut Ui, i: usize, acts: &mut Vec<Action>) {
     let seen = w.watched(i);
     if ui.button(if seen { "Marquer comme non vu" } else { "Marquer comme vu" }).clicked() { acts.push(Action::SetWatched(vec![id.clone()], !seen)); ui.close_menu(); }
     ui.separator();
-    if ui.button(if app.has_vlc() { "Ouvrir dans VLC" } else { "Ouvrir dans un lecteur externe" }).clicked() { acts.push(Action::External(id.clone())); ui.close_menu(); }
+    if ui.button("Ouvrir avec une autre application").clicked() { acts.push(Action::External(id.clone())); ui.close_menu(); }
     if ui.button("Afficher dans le dossier").clicked() { acts.push(Action::Reveal(id.clone())); ui.close_menu(); }
     ui.separator();
     if ui.button("Rechercher les infos à nouveau").clicked() { acts.push(Action::Refetch(id.clone(), None)); ui.close_menu(); }
@@ -524,8 +562,7 @@ fn inspector(app: &mut App, ui: &mut Ui, i: usize, acts: &mut Vec<Action>) {
         let label = match (resume, w.rec(i)) { (Some(_), Some(r)) => format!("Reprendre à {}", model::format_time(r.position)), _ => "Lire".into() };
         if ui.add_sized([269.0, 34.0], egui::Button::image_and_text(icons::image("play", 13.0, p.on_accent), RichText::new(label).color(p.on_accent).strong()).fill(p.accent)).clicked() { acts.push(Action::Play(it.id.clone(), false)); }
         if resume.is_some() && full(ui, egui::Button::image_and_text(icons::image("restart", 13.0, p.text), "Reprendre au début")).clicked() { acts.push(Action::Play(it.id.clone(), true)); }
-        let ext = if app.has_vlc() { "Ouvrir dans VLC" } else { "Ouvrir dans un lecteur externe" };
-        if full(ui, egui::Button::image_and_text(icons::image("external", 14.0, p.text), ext)).clicked() { acts.push(Action::External(it.id.clone())); }
+        if full(ui, egui::Button::image_and_text(icons::image("external", 14.0, p.text), "Ouvrir avec une autre application")).clicked() { acts.push(Action::External(it.id.clone())); }
         let seen = w.watched(i);
         if full(ui, egui::Button::image_and_text(icons::image(if seen { "eyeOff" } else { "checkCircle" }, 14.0, p.text), if seen { "Marquer comme non vu" } else { "Marquer comme vu" })).clicked() { acts.push(Action::SetWatched(vec![it.id.clone()], !seen)); }
         ui.horizontal(|ui| {
@@ -638,7 +675,7 @@ fn settings_sheet(app: &mut App, ctx: &egui::Context, acts: &mut Vec<Action>) {
         ui.add_space(4.0);
         egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| match tab {
             SettingsTab::General => general(app, ui, acts),
-            SettingsTab::Playback => playback(app, ui),
+            SettingsTab::Playback => playback(app, ui, acts),
             SettingsTab::Metadata => metadata(app, ui, ctx, acts),
         });
         x
@@ -675,23 +712,43 @@ fn general(app: &mut App, ui: &mut Ui, acts: &mut Vec<Action>) {
     });
 }
 
-fn playback(app: &mut App, ui: &mut Ui) {
+fn playback(app: &mut App, ui: &mut Ui, acts: &mut Vec<Action>) {
     let p = app.p;
-    ui::group(ui, &p, "Lecteur", |ui| {
-        match app.mpv_error.clone().or_else(crate::mpv::load_error) {
-            None => {
-                ui.horizontal(|ui| { ui.add(icons::image("checkCircle", 15.0, p.ok)); ui.label("mpv est intégré à Biblifilm"); });
-                ui.label(RichText::new("Tous les formats sont lus dans la fenêtre (MKV, x265 10 bits, EAC3, sous-titres ASS). Espace lecture/pause, ←/→ 10 s, ↑/↓ volume, B piste audio, V sous-titres, F plein écran, Échap.").size(11.5).color(p.muted));
+    ui::group(ui, &p, "Lecteur : VLC", |ui| {
+        use crate::vlc::{Kind, Scope, State};
+        match app.vlc.state() {
+            State::Checking => { ui.horizontal(|ui| { ui::spinner(ui, 13.0); ui.label("Recherche de VLC…"); }); }
+            State::Installing => { ui.horizontal(|ui| { ui::spinner(ui, 13.0); ui.label("Installation de VLC depuis Flathub…"); }); }
+            State::Missing | State::Failed(_) => {
+                let failed = if let State::Failed(e) = app.vlc.state() { Some(e) } else { None };
+                ui.horizontal(|ui| {
+                    ui.add(icons::image("info", 15.0, p.warm));
+                    ui.label(match &failed { Some(e) => format!("L'installation de VLC a échoué : {e}"), None => "VLC n'est pas installé".into() });
+                });
+                ui.label(RichText::new("Biblifilm installe le Flatpak officiel de VLC (Flathub, environ 60 Mo) et le tient à jour. Il s'installe aussi tout seul à la première lecture.").size(11.5).color(p.muted));
+                if ui::primary(ui, &p, "Installer VLC").clicked() { acts.push(Action::InstallVlc); }
             }
-            Some(e) => {
-                ui.horizontal(|ui| { ui.add(icons::image("warning", 15.0, p.warm)); ui.label(format!("Lecteur indisponible : {e}")); });
-                ui.label(RichText::new("La version AppImage embarque libmpv. Depuis les sources, installez la libmpv de votre distribution (paquet mpv-libs ou libmpv2).").size(11.5).color(p.muted));
+            State::Ready { kind, version, updating } => {
+                let v = version.map(|v| format!(" {v}")).unwrap_or_default();
+                let how = match &kind {
+                    Kind::Flatpak(Scope::System) => "Flatpak, pour tout le système".to_string(),
+                    Kind::Flatpak(Scope::User) => "Flatpak, pour cet utilisateur".to_string(),
+                    Kind::Native(path) => format!("{}", path.display()),
+                };
+                ui.horizontal(|ui| { ui.add(icons::image("checkCircle", 15.0, p.ok)); ui.label(format!("VLC{v} ({how})")); });
+                if let Kind::Flatpak(_) = kind {
+                    ui.label(RichText::new("Mis à jour automatiquement une fois par jour.").size(11.5).color(p.muted));
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!updating, egui::Button::new("Mettre à jour VLC maintenant")).clicked() { acts.push(Action::UpdateVlc); }
+                        if updating { ui::spinner(ui, 13.0); ui.label(RichText::new("Mise à jour…").color(p.muted)); }
+                    });
+                } else {
+                    ui.label(RichText::new("VLC du système : ses mises à jour passent par votre distribution.").size(11.5).color(p.muted));
+                }
             }
         }
-        ui.horizontal(|ui| {
-            ui.add(icons::image(if app.has_vlc() { "checkCircle" } else { "info" }, 15.0, if app.has_vlc() { p.ok } else { p.muted }));
-            ui.label(if app.has_vlc() { "VLC : installé (« Ouvrir dans VLC »)" } else { "VLC : introuvable — « Ouvrir dans un lecteur externe » utilise l'app par défaut" });
-        });
+        ui.add_space(4.0);
+        toggle(app, ui, "vlcFullscreen", "Ouvrir VLC en plein écran", "Biblifilm retient la position, marque l'épisode comme vu à la fin et enchaîne la suite de la saison.", acts);
     });
     ui.add_space(8.0);
     ui::group(ui, &p, "Historique de visionnage", |ui| {
