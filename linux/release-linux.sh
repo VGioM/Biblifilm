@@ -14,8 +14,9 @@
 # celui que la mise à jour intégrée de la version Linux cherche, et que la
 # version Mac ignore. Une AppImage déjà présente sous ce nom est remplacée.
 #
-# À lancer là où build-appimage.sh fonctionne (Fedora, ou le conteneur toolbox
-# décrit dans README.md) ; gh doit être connecté.
+# Se lance depuis le système : la construction passe par le conteneur distrobox
+# « rustbuild » s'il existe (voir README.md), sinon sur place (Fedora). gh doit
+# être connecté. RELEASE_NOTES remplace le texte d'une release Linux seule.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -31,7 +32,11 @@ echo "▸ Version $VERSION…"
 sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
 
 rm -rf dist
-./build-appimage.sh
+if [ -z "${CONTAINER_ID:-}" ] && command -v distrobox >/dev/null && distrobox list 2>/dev/null | grep -q ' rustbuild '; then
+    distrobox enter rustbuild -- bash -lc "export PATH=\$HOME/.cargo/bin:\$PATH; cd '$PWD' && ./build-appimage.sh"
+else
+    ./build-appimage.sh
+fi
 [ -f "$FILE" ] || { echo "✗ $FILE introuvable."; exit 1; }
 
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
@@ -41,7 +46,7 @@ else
     echo "▸ Release Linux $TAG…"
     git push -q origin HEAD
     gh release create "$TAG" "$FILE" -R "$REPO" --target "$(git rev-parse HEAD)" --title "$NAME $VERSION" \
-        --notes "Version Linux uniquement : rien ne change pour la version Mac."
+        --notes "${RELEASE_NOTES:-Version Linux uniquement : rien ne change pour la version Mac.}"
 fi
 
 # La section Linux des notes : remplacée si elle existe, ajoutée sinon.
@@ -55,7 +60,7 @@ TMP_NOTES="$(mktemp)"
 
 Téléchargez \`$NAME-$VERSION-linux-x86_64.AppImage\`, rendez-le exécutable (\`chmod +x\`, ou Propriétés → Autoriser l'exécution), puis lancez-le. Application native (Rust), sans Electron. Elle vérifie elle-même au lancement s'il existe une nouvelle version et remplace son AppImage (menu ··· → Rechercher les mises à jour…).
 
-La vidéo est lue dans la fenêtre par libmpv, inclus dans l'AppImage : plus besoin d'installer mpv.
+La vidéo est lue dans la fenêtre par libVLC, le moteur de VLC (comme VLCKit sur Mac), inclus dans l'AppImage : rien d'autre à installer, pas même VLC.
 
 **Configuration requise :** Linux x86_64 (Fedora, Bazzite, Ubuntu, Arch…).
 DOC
