@@ -226,6 +226,7 @@ dependencies = [
  "egui_glow",
  "fancy-regex",
  "image",
+ "libloading",
  "notify",
  "resvg 0.45.1",
  "rfd",

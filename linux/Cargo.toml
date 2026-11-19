@@ -2,7 +2,7 @@
 name = "biblifilm"
 version = "1.3.6"
 edition = "2021"
-description = "Bibliothèque de films et séries, identifiés en ligne, lus dans VLC"
+description = "Bibliothèque de films et séries, identifiés en ligne, lus avec VLC intégré"
 license = "UNLICENSED"
 publish = false
 
@@ -25,6 +25,7 @@ arboard = { version = "3", default-features = false, features = ["wayland-data-c
 trash = "5"
 dirs = "6"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+libloading = "0.8"
 
 [profile.release]
 opt-level = 3

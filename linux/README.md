@@ -3,49 +3,39 @@
 La version Linux de Biblifilm : le même dossier analysé, la même identification en
 ligne (TMDB avec clé, TVmaze et Wikidata sans), les mêmes tuiles par saison, la même
 reprise de lecture et les mêmes épisodes vus. Une application native en Rust (l'app Mac
-est en SwiftUI avec VLCKit, qui n'existent pas sur Linux), distribuée en AppImage, qui
-lit tout dans **VLC**.
+est en SwiftUI avec VLCKit, qui n'existent pas sur Linux), distribuée en AppImage.
 
 ## Installer
 
 Télécharger `Biblifilm-<version>-linux-x86_64.AppImage` dans les
 [releases](https://github.com/VGioM/Biblifilm/releases), le rendre exécutable
 (`chmod +x`) et le lancer. Les mises à jour se font ensuite depuis l'app (menu ··· →
-Rechercher les mises à jour…). **Rien d'autre à installer** : s'il manque, Biblifilm
-installe VLC lui-même à la première lecture (voir ci-dessous).
+Rechercher les mises à jour…). **Rien d'autre à installer** : le lecteur (libVLC, le
+moteur de VLC) est dans l'AppImage — pas besoin d'installer VLC.
 
 ## La lecture
 
-Un clic sur **Lire** ouvre le film dans **VLC**, en plein écran (réglable dans
-Réglages → Lecture). Biblifilm suit la lecture par l'interface web locale de VLC
-(uniquement sur 127.0.0.1, avec un port et un mot de passe tirés au hasard à chaque
-lecture) ; une barre « En lecture dans VLC » montre le titre et la position, avec
-« Fermer VLC ».
+Comme sur Mac, l'écran devient le film : la vidéo est lue **dans la fenêtre** par
+**libVLC**, le moteur de VLC — le même que VLCKit sur Mac —, inclus dans l'AppImage avec
+ses modules (FFmpeg complet, libass, dav1d…). Il lit tout ce que VLC lit — MKV, x265
+10 bits, AV1, EAC3/DTS, sous-titres ASS ou SRT à côté du fichier — avec le décodage
+matériel quand la carte graphique le permet, et tient l'écran allumé pendant la lecture.
+VLC livre chaque image à l'app, qui l'affiche (réduite au-delà de 2560 × 1440, la taille
+utile d'une fenêtre) avec la barre de lecture par-dessus.
 
-- Reprise à la position enregistrée, épisode vu à la fin (ou au-delà de 92 %), lecture
-  comptée seulement après 3 secondes vraiment jouées, position écrite régulièrement,
-  à la pause et à la fermeture de VLC.
-- La saison s'enchaîne dans la liste de lecture de VLC ; « Suivant » dans VLC passe à
-  l'épisode suivant, et Biblifilm suit.
-- L'audio français est choisi en priorité ; pistes et sous-titres se changent dans VLC.
+- Reprise à la position enregistrée, épisode vu au-delà de 92 %, lecture comptée
+  seulement après 3 secondes vraiment jouées, position écrite régulièrement et en
+  quittant.
+- La saison s'enchaîne ; « Épisode suivant » passe au suivant.
+- Pistes audio et sous-titres au choix dans la barre de lecture ; le choix est retenu
+  (par libellé) et réappliqué à l'épisode suivant.
+- Clavier : Espace lecture/pause, ←/→ 10 s, ↑/↓ et molette pour le volume, B piste audio
+  suivante, V sous-titres suivants, N épisode suivant, F ou double-clic plein écran,
+  Échap pour revenir.
 
-### VLC installé et tenu à jour
-
-Biblifilm utilise le **Flatpak officiel de VLC** ([Flathub](https://flathub.org/apps/org.videolan.VLC)),
-la façon propre d'installer une application sur un système immuable comme Bazzite,
-Silverblue ou Kinoite (pas de paquet à superposer avec rpm-ostree) :
-
-- S'il n'est pas là, il est installé à la première lecture (≈ 60 Mo, plus le runtime
-  KDE s'il manque), pour tout le système — sans mot de passe pour un administrateur
-  sur Fedora/Bazzite — ou, à défaut, pour l'utilisateur seul. La lecture démarre
-  ensuite toute seule.
-- Il est mis à jour automatiquement une fois par jour au lancement de Biblifilm
-  (Réglages → Lecture → « Mettre à jour VLC maintenant » pour forcer).
-- Un VLC installé autrement (paquet de la distribution) est utilisé s'il n'y a pas
-  de Flatpak ; ses mises à jour restent celles de la distribution.
-
-« Ouvrir avec une autre application » passe par l'application par défaut du bureau,
-sans suivi.
+« Ouvrir dans VLC » (l'application VLC, en paquet ou en Flatpak, sinon l'app par défaut)
+reste la porte de sortie, sans suivi. `VLC_TRACE=1` écrit l'état du lecteur sur la
+sortie d'erreur.
 
 ## Autres différences
 
@@ -62,13 +52,15 @@ sans suivi.
 
 Une application Rust native ([egui](https://github.com/emilk/egui), rendu OpenGL,
 Wayland et X11). Il faut Rust stable, et pour l'AppImage une Fedora — sur un système
-immuable (Bazzite, Silverblue, Kinoite), un conteneur toolbox Fedora fait l'affaire :
+immuable (Bazzite, Silverblue, Kinoite), un conteneur Fedora fait l'affaire :
 
 ```sh
-toolbox create -c rustbuild --distro fedora --release 44
-toolbox enter rustbuild
-sudo dnf install -y gcc pkgconf-pkg-config squashfs-tools \
-    wayland-devel libxkbcommon-devel libxkbcommon-x11 libX11-devel libXcursor libXrandr libXi mesa-libEGL-devel
+distrobox create --name rustbuild --image registry.fedoraproject.org/fedora:44
+distrobox enter rustbuild
+sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm
+sudo dnf install -y gcc pkgconf-pkg-config squashfs-tools patchelf \
+    wayland-devel libxkbcommon-devel libxkbcommon-x11 libX11-devel libXcursor libXrandr libXi mesa-libEGL-devel \
+    vlc-devel vlc-plugins-base vlc-plugins-extra vlc-plugin-ffmpeg vlc-plugins-freeworld vlc-plugin-pulseaudio
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh    # Rust, si absent
 ```
 
@@ -80,8 +72,9 @@ cargo test               # tests unitaires
 ./build-appimage.sh      # dist/Biblifilm-<version>-linux-x86_64.AppImage
 ```
 
-`build-appimage.sh` compile et emballe le programme dans l'AppImage (squashfs gzip) ;
-il n'embarque aucune bibliothèque : la lecture est confiée à VLC. Le
+`build-appimage.sh` compile, copie dans l'AppImage libVLC, ses modules de lecture (ni
+interface Qt, ni diffusion) et les bibliothèques dont ils ont besoin — jamais la glibc, les pilotes graphiques, le son ni les bibliothèques de
+base du bureau, qui restent celles du système — et la compresse (squashfs gzip). Le
 « runtime » AppImage placé en tête est pris dans `APPIMAGE_RUNTIME` (par défaut : celui
 qu'electron-builder a mis en cache).
 
