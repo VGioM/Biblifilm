@@ -45,7 +45,9 @@ if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
 else
     echo "▸ Release Linux $TAG…"
     git push -q origin HEAD
-    gh release create "$TAG" "$FILE" -R "$REPO" --target "$(git rev-parse HEAD)" --title "$NAME $VERSION" \
+    # Pas « Latest » : la mise à jour Mac ne lit que celle-là, et n'y trouverait pas son zip.
+    # La version Linux, elle, parcourt toutes les releases.
+    gh release create "$TAG" "$FILE" -R "$REPO" --target "$(git rev-parse HEAD)" --title "$NAME $VERSION" --latest=false \
         --notes "${RELEASE_NOTES:-Version Linux uniquement : rien ne change pour la version Mac.}"
 fi
 
